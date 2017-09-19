@@ -1,4 +1,4 @@
-# Copyright (c) 2017 by ETH Zürich, Thomas Müller.
+# Copyright (c) 2017 by ETH Zurich, Thomas Mueller.
 cmake_minimum_required(VERSION 2.8.3)
 
 project(visualizer)
@@ -6,6 +6,12 @@ project(visualizer)
 if (MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /D_CRT_SECURE_NO_WARNINGS")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+endif()
+
+find_package(OpenMP)
+if (OPENMP_FOUND)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 endif()
 
 set(NANOGUI_BUILD_EXAMPLE OFF CACHE BOOL " " FORCE)
