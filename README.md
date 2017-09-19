@@ -27,6 +27,7 @@ The KITCHEN scene from the paper is included in this repository. The TORUS scene
 - `MainWindow` (*mainwindow.cpp*)
   - Removed warning about orphaned rectangular work units (occured when multiple threads write into spatially overlapping blocks at the same time).
 - General
+  - Changed the Visual Studio 2010 project to a Visual Studio 2013 project to make our integrator compile.
   - Removed the Irawan BSDF to make mitsuba compile under newer GCC versions.
   - Always enabled the ADT_WORKAROUND in `ply_parser.hpp` to make mitsuba compile under newer GCC versions.
 
