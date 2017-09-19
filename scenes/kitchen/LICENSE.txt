@@ -1,0 +1,12 @@
+This is the Mitsuba version of 'Country Kitchen' by Jay-Artist, downloaded from https://benedikt-bitterli.me/resources/ and then modified to have a strongly directional environment light source, a glass table, and a mirror.
+
+The original file may be obtained here: http://www.blendswap.com/blends/view/42851
+
+This scene was released under a CC-BY license.
+It may be copied, modified and used commercially without permission, as long as:
+
+  * Appropriate credit is given to the original author
+  * A link to the license is provided
+  
+For more information about the license, please see
+https://creativecommons.org/licenses/by/3.0/
