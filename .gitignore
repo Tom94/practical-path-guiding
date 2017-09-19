@@ -1,3 +1,6 @@
+# Build dependencies
+/mitsuba/dependencies
+
 # Prerequisites
 *.d
 
@@ -30,3 +33,17 @@
 *.exe
 *.out
 *.app
+
+# Other build artifacts
+/mitsuba/.sconf_temp
+/mitsuba/.sconsign.dblite
+/mitsuba/build/.vs
+/mitsuba/build/[R,r]elease
+/mitsuba/build/[D,d]ebug
+/mitsuba/config.log
+/mitsuba/data
+/mitsuba/dist
+
+/visualizer/build
+
+*.vcxproj.user

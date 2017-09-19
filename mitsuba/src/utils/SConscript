@@ -1,0 +1,10 @@
+Import('env', 'plugins')
+
+plugins += env.SharedLibrary('addimages', ['addimages.cpp'])
+plugins += env.SharedLibrary('joinrgb', ['joinrgb.cpp'])
+plugins += env.SharedLibrary('cylclip', ['cylclip.cpp'])
+plugins += env.SharedLibrary('kdbench', ['kdbench.cpp'])
+plugins += env.SharedLibrary('tonemap', ['tonemap.cpp'])
+#plugins += env.SharedLibrary('rdielprec', ['rdielprec.cpp'])
+
+Export('plugins')

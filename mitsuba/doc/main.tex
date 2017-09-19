@@ -1,0 +1,187 @@
+\documentclass[footinclude=false,11pt,DIV11]{scrartcl}
+
+% Wenzel's standard prelude
+% ----- 8< ----- 8< ------
+
+\usepackage[english]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{mathtools}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{color}
+\usepackage{colortbl}
+\usepackage{listings}
+\usepackage{enumerate}
+\usepackage{upquote}
+\usepackage[absolute]{textpos} % Manual placement of certain things
+\usepackage{ragged2e} % Ragged-right columns with hyphenation
+\usepackage{nicefrac}
+\usepackage{macros}
+\usepackage[format=hang,font=small,labelfont=bf]{caption}
+\usepackage[expansion=false, babel=true]{microtype}
+\usepackage{subfig}
+\usepackage{ifthen}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{footnote} % savenotes environment
+
+% Make sure that ligatures remain searchable in the PDF
+\input glyphtounicode
+\pdfgentounicode=1
+
+\IfFileExists{MinionPro.sty}
+   {\usepackage[opticals,fullfamily,lf]{MinionPro}}
+   {\usepackage{charter}\message{Package MinionPro.sty was not found. Reverting to charter.}}
+
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
+
+\newcommand{\MitsubaVersion}{0.5.0}
+\newcommand{\MitsubaYear}{2014}
+
+\typearea[current]{last}
+\raggedbottom
+\renewcommand*\ttdefault{txtt}
+
+\usepackage{scrpage2}
+\ofoot[]{}
+\cfoot[]{}
+\automark[subsection]{section}
+\ihead{\normalfont\scshape\leftmark}
+\ohead{\normalfont\scshape\rightmark}
+\chead{}
+\setheadsepline{.2pt}
+\setkomafont{pagenumber}{\normalfont}
+\addtokomafont{sectioning}{\color{myblue}\rmfamily}
+\addtokomafont{descriptionlabel}{\rmfamily}
+\pagestyle{scrheadings}
+
+\usepackage[
+    bookmarks,
+    bookmarksnumbered,
+    colorlinks,
+    plainpages=false,
+    pdfpagelabels,
+    hypertexnames=false,
+    linkcolor=myblue,
+    urlcolor=myblue,
+    citecolor=myblue,
+    pdfpagelabels,
+    pdftitle={Mitsuba \MitsubaVersion\, Documentation},
+    pdfauthor={Wenzel Jakob},
+    pdfstartview=FitH
+]{hyperref}
+
+\definecolor{myblue}{rgb}{0,.1,.6}
+\definecolor{myred}{rgb}{0.63,.16,.16}
+\definecolor{lstshade}{gray}{0.95}
+\definecolor{lstframe}{gray}{0.80}
+\definecolor{lstcomment}{gray}{0.5}
+\definecolor{lstattrib}{rgb}{0,0.34,0}
+\definecolor{remark}{rgb}{1.0, 0.9, 0.9}
+\definecolor{remarkframe}{rgb}{1.0, 0.7, 0.7}
+
+% requires the latest version of package accsupp
+\usepackage[space=true]{accsupp}
+\newcommand{\copyablespace}{\BeginAccSupp{method=hex,unicode,ActualText=00A0}\ \EndAccSupp{}}
+
+% Listings settings
+\lstset{
+    basicstyle = \small\ttfamily\raggedright,
+    commentstyle=\color{lstcomment}\itshape,
+    stringstyle=\color{lstattrib},
+    mathescape = true,
+    frame = lrtb,
+    backgroundcolor = \color{lstshade},
+    rulecolor = \color{lstframe},
+    tabsize = 4,
+    columns = fullflexible,
+    keepspaces,
+    belowskip = \smallskipamount,
+    framerule = .7pt,
+    breaklines = true,
+    showstringspaces = false,
+    keywordstyle = \bfseries,
+    captionpos = b,
+    upquote = true,
+    literate={\ }{{\copyablespace}}1
+}
+
+\lstdefinelanguage{xml} {
+    sensitive=true,
+    morecomment=[s][\color{lstcomment}\itshape]{<!--}{-->},
+    morecomment=[s][\color{lstcomment}]{<?}{?>},
+    string=[b]", stringstyle=\color{lstattrib},
+    keywords= [1] {
+        shape,bsdf,scene,texture,phase,integer,float,
+        string,transform,ref,rgb,srgb,spectrum,blackbody,
+        medium,film,sampler,integrator,emitter,sensor,
+        translate,rotate,scale,lookat,point,vector,matrix,
+        include,fscat,volume,alias,rfilter,boolean,
+        subsurface,animation
+    },
+}
+
+
+% Set up textpos
+\TPGrid{68}{108}
+
+% Thick frames for images
+\setlength\fboxsep{0pt}
+\setlength\fboxrule{1.5pt}
+
+% Less vertical spacing for \figure[h] floats
+\setlength{\intextsep}{3pt}
+
+\lstnewenvironment{shell}[1][]{\lstset{#1}}
+    {}
+\lstnewenvironment{cpp}[1][]{\lstset{language=c++, #1}}
+    {}
+\lstnewenvironment{python}[1][]{\lstset{language=Python, #1}}
+    {}
+\lstnewenvironment{xml}[1][]{\lstset{language=xml, #1}}
+    {}
+\lstnewenvironment{console}[1][]{\lstset{basicstyle=\footnotesize\ttfamily, float, #1}}
+    {}
+
+% ----- 8< ----- 8< ------
+
+\title{
+    \vspace{3cm}
+    \includegraphics[width=4cm]{images/logo_plain.pdf}\\\vspace{1.5cm}
+    \Huge
+    Mitsuba Documentation\\\vspace{4mm}
+    \LARGE Version \MitsubaVersion
+    \vspace{5mm}
+}
+\author{Wenzel Jakob}
+\date{\today}
+
+\begin{document}
+\maketitle
+\clearpage
+\ofoot[\pagemark]{\pagemark}
+
+\tableofcontents
+
+\include{introduction}
+\include{compiling}
+\include{basics}
+\include{format}
+\include{misc}
+\include{plugins}
+\include{development}
+\include{integrator}
+\include{parallelization}
+\include{python}
+\include{acknowledgements}
+\include{gpl-v3}
+
+\bibliographystyle{acm}
+\bibliography{main}
+
+\end{document}

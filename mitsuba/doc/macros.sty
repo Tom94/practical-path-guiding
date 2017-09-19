@@ -1,0 +1,125 @@
+% Cite a figure/listing
+\renewcommand{\lstlistingname}{Listing}
+\newcommand{\figref}[1]{\mbox{\hyperref[fig:#1]{Figure~\ref*{fig:#1}}}}
+\newcommand{\figpage}[1]{\hyperref[fig:#1]{page \pageref*{fig:#1}}}
+\newcommand{\subfigref}[2]{\mbox{\hyperref[fig:#1]{Figure~\ref*{fig:#1}#2}}}
+\newcommand{\secref}[1]{\mbox{\hyperref[sec:#1]{Section~\ref*{sec:#1}}}}
+\newcommand{\secpage}[1]{\hyperref[sec:#1]{page \pageref*{sec:#1}}}
+\newcommand{\lstref}[1]{\mbox{\hyperref[lst:#1]{Listing~\ref{lst:#1}}}}
+\newcommand{\lstpage}[1]{\hyperref[lst:#1]{page \pageref*{lst:#1}}}
+\newcommand{\tblref}[1]{\mbox{\hyperref[tbl:#1]{Table~\ref{tbl:#1}}}}
+\newcommand{\tblpage}[1]{\hyperref[tbl:#1]{page \pageref*{tbl:#1}}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+% Macros that are used in the plugin documentation
+\newcommand{\plugin}[3][Default]{%
+	\ifthenelse{\equal{#1}{Default}}{%
+		\newpage\subsubsection{#3 (\texttt{#2})}\label{plg:#2}%
+	}{%
+		\newpage\subsubsection{#3 (\texttt{#2})}\label{plg:#1}%
+	}%
+}
+\newcommand{\pluginref}[2][Default]{%
+	\ifthenelse{\equal{#1}{Default}}{%
+		\texttt{\hyperref[plg:#2]{#2}}%
+	}{%
+		\texttt{\hyperref[plg:#1]{#2}}%
+	}%
+}
+
+\newcommand{\pluginpage}[1]{\hyperref[plg:#1]{page \pageref*{plg:#1}}}
+\newcommand{\order}[1]{} % Ignore
+
+\newcommand{\Transform}{\texttt{transform}}
+\newcommand{\Animation}{\texttt{animation}}
+\newcommand{\Spectrum}{\texttt{spectrum}}
+\newcommand{\Integer}{\texttt{integer}}
+\newcommand{\String}{\texttt{string}}
+\newcommand{\Boolean}{\texttt{boolean}}
+\newcommand{\Float}{\texttt{float}}
+\newcommand{\Vector}{\texttt{vector}}
+\newcommand{\Point}{\texttt{point}}
+\newcommand{\Texture}{\texttt{texture}}
+\newcommand{\Integrator}{\texttt{integrator}}
+\newcommand{\BSDF}{\texttt{bsdf}}
+\newcommand{\Phase}{\texttt{phase}}
+\newcommand{\Shape}{\texttt{shape}}
+\newcommand{\RFilter}{\texttt{rfilter}}
+\newcommand{\ShapeGroup}{\texttt{shapegroup}}
+\newcommand{\Volume}{\texttt{volume}}
+\newcommand{\Unnamed}{\emph{(Nested plugin)}}
+\newcommand{\Or}{~~\small or \small}
+\newcolumntype{P}[1]{>{\RaggedRight\hspace{0pt}}p{#1}}
+\newcommand{\MtsVer}{\color{lstattrib}\texttt{"\MitsubaVersion"}}
+
+
+\IfFileExists{MinionPro.sty}
+   {\newcommand{\showbreak}{$\rhookswarrow$ }}
+   {\newcommand{\showbreak}{$\hookleftarrow$ }}
+
+\newcommand{\parheader}[1]{\vspace{2mm}\textbf{\color{myblue}#1}}
+
+\newcommand{\otoprule}{\midrule[.8pt]}
+\newlength\fboxrulebackup
+\newcommand{\parameters}[1]{
+	\setlength\fboxrulebackup\fboxrule
+	\setlength\fboxrule{0.8pt}
+	\begin{figure}[htbp]\centering\arrayrulecolor{lstframe}
+	\fcolorbox{lstframe}{lstshade}{\begin{tabular}{@{\hspace{3mm}}P{3cm}P{2.2cm}p{8.3cm}@{\hspace{3mm}}}
+ 		%\toprule
+		\\[-2.2ex]
+		\textbf{Parameter}&\textbf{Type}&\textbf{Description}\\
+		#1\\[-4mm]
+	\end{tabular}}
+	\end{figure}
+	\setlength\fboxrule\fboxrulebackup
+	\arrayrulecolor{black}
+	}
+
+\newcommand{\remarks}[1]{
+	\setlength\fboxrulebackup\fboxrule
+	\setlength\fboxrule{0.8pt}
+	\vspace{1em}
+	\begin{figure}[htbp]\centering
+	\fcolorbox{remarkframe}{remark}{
+		\parbox{\columnwidth-1.1cm}{
+		\vspace{.6em}\hspace{.6em}\parbox{\columnwidth-1.6em}{
+		\textbf{Remarks:}\small
+		\vspace{-.4em}
+		\begin{itemize}
+		#1
+		\end{itemize}
+		}}\hspace*{1cm}}\end{figure}
+	\setlength\fboxrule\fboxrulebackup
+	}
+
+\newcommand{\renderings}[1]{
+	\begin{figure}[htb!]
+		\setcounter{subfigure}{0}
+		\centering
+		\hfill
+		#1
+	\end{figure}
+}
+
+\newcommand{\icon}[1]{
+	\begin{textblock}{3}(51,8)
+	\includegraphics[width=2.25cm]{images/#1.pdf}
+	\end{textblock}
+ 	\vspace{3mm}
+}
+\newcommand{\rendering}[2]{\subfloat[#1]{\fbox{\includegraphics[width=0.47\textwidth]{images/#2}}}\hfill}
+\newcommand{\unframedrendering}[2]{\subfloat[#1]{\includegraphics[width=0.47\textwidth]{images/#2}}\hfill}
+\newcommand{\bigrendering}[2]{\subfloat[#1]{\fbox{\includegraphics[width=\textwidth]{images/#2}}}\hfill}
+\newcommand{\unframedbigrendering}[2]{\subfloat[#1]{\includegraphics[width=\textwidth]{images/#2}}\hfill}
+\newcommand{\medrendering}[2]{ \subfloat[#1]{\fbox{\includegraphics[width=0.31\textwidth]{images/#2}}}\hfill}
+\newcommand{\unframedmedrendering}[2]{\subfloat[#1]{\includegraphics[width=0.31\textwidth]{images/#2}}\hfill}
+\newcommand{\smallrendering}[2]{ \subfloat[#1]{\fbox{\includegraphics[width=0.2\textwidth]{images/#2}}}\hfill}
+\newcommand{\tinyrendering}[2]{ \subfloat[#1]{\includegraphics[width=0.125\textwidth]{images/#2}}}
+
+\newcommand{\parameter}[3]{
+		\otoprule
+		\small\texttt{#1} & \small #2 & \small #3 \\
+	}
+
+\newcommand{\default}[1]{ (Default: #1)}
