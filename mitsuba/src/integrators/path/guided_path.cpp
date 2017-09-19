@@ -1442,10 +1442,6 @@ public:
             }
         };
 
-#ifdef PATH_DEBUG
-        std::string pathString = "E";
-#endif
-
         while (rRec.depth <= m_maxDepth || m_maxDepth < 0) {
 
             /* ==================================================================== */
