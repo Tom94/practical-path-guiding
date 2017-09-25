@@ -43,7 +43,7 @@ The KITCHEN scene from the paper is included in this repository. The TORUS scene
 
 ### Mitsuba
 
-To compile the Mitsuba code, follow the instructions from the [Mitsuba documentation](http://mitsuba-renderer.org/docs.html). Since our new code uses C++11 features, a slightly more recent compiler than reported in the mitsuba documentation may be required.
+To compile the Mitsuba code, please follow the instructions from the [Mitsuba documentation](http://mitsuba-renderer.org/docs.html) (sections 4.1.1 through 4.6). Since our new code uses C++11 features, a slightly more recent compiler than reported in the mitsuba documentation may be required.
 
 We tested our Mitsuba code on
 - Windows (Visual Studio 2013 Win64)
