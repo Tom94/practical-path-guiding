@@ -51,7 +51,7 @@ We tested our Mitsuba code on
 
 ### Visualization Tool
 
-The visualization tool, found in the *visualizer* subfolder, uses the [CMake](https://cmake.org/) build system. Simply invoke the CMake generator on the *visualizer* subfolder to generates Visual Studio project files on Windows, and a Makefile on Linux / OS X.
+The visualization tool, found in the *visualizer* subfolder, uses the [CMake](https://cmake.org/) build system. Simply invoke the CMake generator on the *visualizer* subfolder to generate Visual Studio project files on Windows, and a Makefile on Linux / OS X.
 
 The visualization tool was tested on
 - Windows (Visual Studio 2013-2017 Win64)
