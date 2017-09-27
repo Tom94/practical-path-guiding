@@ -8,7 +8,11 @@ The guided path tracer in this repository was not designed to handle participati
 
 ## Scenes
 
-The KITCHEN scene from the paper is included in this repository. The TORUS scene is available for download on the [Mitsuba website](http://mitsuba-renderer.org/download.html) and the POOL scene is bundled with the [public source code of the method by Vorba et al. [2014]](http://cgg.mff.cuni.cz/~jirka/papers/2014/olpm/index.htm).
+The KITCHEN scene from the paper is included in this repository. It was originally modeled by [Jay-Artist on Blendswap](http://www.blendswap.com/user/Jay-Artist), converted into a Mitsuba scene by [Benedikt Bitterli](https://benedikt-bitterli.me/resources/), and then slightly modified by us. The scene is covered by the [CC BY 3.0 license](https://creativecommons.org/licenses/by/3.0/).
+
+The TORUS scene is available for download on the [Mitsuba website](http://mitsuba-renderer.org/download.html). It was created by Olesya Jakob.
+
+The POOL scene—created by Ondřej Karlík—is bundled with the [public source code of the method by Vorba et al. [2014]](http://cgg.mff.cuni.cz/~jirka/papers/2014/olpm/index.htm).
 
 ## Implementation
 
