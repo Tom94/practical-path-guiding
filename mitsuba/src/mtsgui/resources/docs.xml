@@ -102,7 +102,7 @@
 		</descr>
     <param name="budgetType" readableName="Budget type" type="string" default="seconds" importance="1">
       What type of budget to use. The following values are valid:
-      "spp": Budget is the amount of samples per pixel.
+      "spp": Budget is the number of samples per pixel.
       "seconds": Budget is a time in seconds.
     </param>
     <param name="budget" readableName="Budget" type="float" default="300" importance="1">
@@ -119,7 +119,7 @@
     </param>
     <param name="sTreeThreshold" readableName="Spatial Subdivision Threshold" type="integer" default="12000" importance="1">
       Parameter "c" from [Müller et al. 2017].
-      Leaf nodes of the spatial binary tree are subdivided if the amount of samples
+      Leaf nodes of the spatial binary tree are subdivided if the number of samples
       they received in the last iteration exceeds c * sqrt(2^k) where c is this value
       and k is the iteration index. The first iteration has k==0.
     </param>

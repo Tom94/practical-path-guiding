@@ -58,10 +58,10 @@ private:
     ifstream f;
 };
 
-static const int AMOUNT_CHANNELS = 1;
+static const int NUM_CHANNELS = 1;
 
 struct QuadTreeNode {
-    array<array<float, 4>, AMOUNT_CHANNELS> data;
+    array<array<float, 4>, NUM_CHANNELS> data;
     array<uint16_t, 4> children;
 
     inline bool isLeaf(int index) const {
@@ -136,18 +136,18 @@ public:
     }
 
     size_t nSamples() const {
-        return mAmountSamples;
+        return mNumSamples;
     }
 
     bool read(BlobReader& blob) {
-        uint64_t amountNodes;
-        uint64_t amountSamples;
-        blob >> mPos.x() >> mPos.y() >> mPos.z() >> mSize.x() >> mSize.y() >> mSize.z() >> mMean >> amountSamples >> amountNodes;
+        uint64_t numNodes;
+        uint64_t numSamples;
+        blob >> mPos.x() >> mPos.y() >> mPos.z() >> mSize.x() >> mSize.y() >> mSize.z() >> mMean >> numSamples >> numNodes;
         if (!blob.isValid()) {
             return false;
         }
 
-        mAmountSamples = (size_t)amountSamples;
+        mNumSamples = (size_t)numSamples;
 
         if (!isfinite(mMean)) {
             cerr << "INVALID MEAN: " << mMean << endl;
@@ -155,11 +155,11 @@ public:
 
         mPos += mSize / 2;
 
-        mNodes.resize(amountNodes);
+        mNodes.resize(numNodes);
         for (size_t i = 0; i < mNodes.size(); ++i) {
             auto& n = mNodes[i];
             for (int j = 0; j < 4; ++j) {
-                for (int k = 0; k < AMOUNT_CHANNELS; ++k) {
+                for (int k = 0; k < NUM_CHANNELS; ++k) {
                     blob >> n.data[k][j];
                     if (!isfinite(n.data[k][j])) {
                         cerr << "INVALID NODE: " << n.data[k][j] << endl;
@@ -176,10 +176,10 @@ public:
     }
 
     float eval(int index, Vector2f p) const {
-        if (mAmountSamples == 0) {
+        if (mNumSamples == 0) {
             return 0;
         }
-        const float factor = 1 / (float)(M_PI * mAmountSamples);
+        const float factor = 1 / (float)(M_PI * mNumSamples);
         return factor * mNodes[0].eval(index, p, mNodes);
     }
 
@@ -214,10 +214,10 @@ private:
     }
 
     float computeMax() const {
-        if (mAmountSamples == 0) {
+        if (mNumSamples == 0) {
             return 0;
         }
-        const float factor = 1 / (float)(4 * M_PI * mAmountSamples);
+        const float factor = 1 / (float)(4 * M_PI * mNumSamples);
         return factor * mNodes[0].computeMax(mNodes);
     }
 
@@ -228,7 +228,7 @@ private:
 
     vector<QuadTreeNode> mNodes;
     float mMean;
-    size_t mAmountSamples;
+    size_t mNumSamples;
 
     int mDepth;
     float mMax;
@@ -290,8 +290,8 @@ private:
 };
 
 struct STree {
-    array<ImageView*, AMOUNT_CHANNELS> imageViews;
-    array<GLTexture, AMOUNT_CHANNELS> textures;
+    array<ImageView*, NUM_CHANNELS> imageViews;
+    array<GLTexture, NUM_CHANNELS> textures;
     vector<shared_ptr<DTree>> dTrees;
 
     Vector3f target;

@@ -297,11 +297,11 @@ public:
         return res;
     }
 
-    size_t amountNodes() const {
+    size_t numNodes() const {
         return m_nodes.size();
     }
 
-    size_t amountSamples() const {
+    size_t numSamples() const {
         return m_atomic.nSamples;
     }
 
@@ -352,7 +352,7 @@ public:
                     m_nodes.back().setMean(otherNode.mean(i) / 4);
 
                     if (m_nodes.size() > std::numeric_limits<uint16_t>::max()) {
-                        SLog(EWarn, "DTreeWrapper hit maximum children amount.");
+                        SLog(EWarn, "DTreeWrapper hit maximum children count.");
                         nodeIndices = std::stack<StackNode>();
                         break;
                     }
@@ -513,8 +513,8 @@ public:
         return sampling.depth();
     }
 
-    size_t amountNodes() const {
-        return sampling.amountNodes();
+    size_t numNodes() const {
+        return sampling.numNodes();
     }
 
     float meanRadiance() const {
@@ -525,12 +525,12 @@ public:
         return sampling.getMeasurement();
     }
 
-    size_t amountSamples() const {
-        return sampling.amountSamples();
+    size_t numSamples() const {
+        return sampling.numSamples();
     }
 
-    size_t amountSamplesBuilding() const {
-        return building.amountSamples();
+    size_t numSamplesBuilding() const {
+        return building.numSamples();
     }
 
     void setSamplesBuilding(size_t nSamples) {
@@ -545,9 +545,9 @@ public:
         blob
             << (float)p.x << (float)p.y << (float)p.z
             << (float)size.x << (float)size.y << (float)size.z
-            << (float)sampling.mean() << (uint64_t)sampling.amountSamples() << (uint64_t)sampling.amountNodes();
+            << (float)sampling.mean() << (uint64_t)sampling.numSamples() << (uint64_t)sampling.numNodes();
 
-        for (size_t i = 0; i < sampling.amountNodes(); ++i) {
+        for (size_t i = 0; i < sampling.numNodes(); ++i) {
             const auto& node = sampling.node(i);
             for (int j = 0; j < 4; ++j) {
                 blob << (float)node.mean(j) << (uint16_t)node.child(j);
@@ -675,7 +675,7 @@ public:
         nodes.resize(nodes.size() + 2);
 
         if (nodes.size() > std::numeric_limits<uint32_t>::max()) {
-            SLog(EWarn, "DTreeWrapper hit maximum children amount.");
+            SLog(EWarn, "DTreeWrapper hit maximum children count.");
             return;
         }
 
@@ -685,7 +685,7 @@ public:
             cur.children[i] = idx;
             nodes[idx].axis = (cur.axis + 1) % 3;
             nodes[idx].dTree = cur.dTree;
-            nodes[idx].dTree.setSamplesBuilding(nodes[idx].dTree.amountSamplesBuilding() / 2);
+            nodes[idx].dTree.setSamplesBuilding(nodes[idx].dTree.numSamplesBuilding() / 2);
         }
         cur.isLeaf = false;
         cur.dTree = {}; // Reset to an empty dtree to save memory.
@@ -726,14 +726,14 @@ public:
 
     void dump(BlobWriter& blob) const {
         forEachDTreeWrapperConstP([&blob](const DTreeWrapper* dTree, const Point& p, const Vector& size) {
-            if (dTree->amountSamples() > 0) {
+            if (dTree->numSamples() > 0) {
                 dTree->dump(blob, p, size);
             }
         });
     }
 
     bool shallSplit(const STreeNode& node, int depth, size_t samplesRequired) {
-        return m_nodes.size() < std::numeric_limits<uint32_t>::max() - 1 && node.dTree.amountSamplesBuilding() > samplesRequired;
+        return m_nodes.size() < std::numeric_limits<uint32_t>::max() - 1 && node.dTree.numSamplesBuilding() > samplesRequired;
     }
 
     void refine(size_t sTreeThreshold, int maxMB) {
@@ -883,15 +883,15 @@ public:
             minAvgRadiance = std::min(minAvgRadiance, avgRadiance);
             avgAvgRadiance += avgRadiance;
 
-            if (dTree->amountNodes() > 1) {
-                const size_t nodes = dTree->amountNodes();
+            if (dTree->numNodes() > 1) {
+                const size_t nodes = dTree->numNodes();
                 maxNodes = std::max(maxNodes, nodes);
                 minNodes = std::min(minNodes, nodes);
                 avgNodes += nodes;
                 ++nPointsNodes;
             }
 
-            const size_t samples = dTree->amountSamples();
+            const size_t samples = dTree->numSamples();
             maxSamples = std::max(maxSamples, samples);
             minSamples = std::min(minSamples, samples);
             avgSamples += samples;
@@ -912,10 +912,10 @@ public:
 
         Log(EInfo,
             "Distribution statistics:\n"
-            "  Depth          = [%d, %f, %d]\n"
-            "  Mean radiance  = [%f, %f, %f]\n"
-            "  Amount nodes   = [" SIZE_T_FMT ", %f, " SIZE_T_FMT "]\n"
-            "  Amount samples = [" SIZE_T_FMT ", %f, " SIZE_T_FMT "]\n",
+            "  Depth         = [%d, %f, %d]\n"
+            "  Mean radiance = [%f, %f, %f]\n"
+            "  Node count    = [" SIZE_T_FMT ", %f, " SIZE_T_FMT "]\n"
+            "  Sample count  = [" SIZE_T_FMT ", %f, " SIZE_T_FMT "]\n",
             minDepth, avgDepth, maxDepth,
             minAvgRadiance, avgAvgRadiance, maxAvgRadiance,
             minNodes, avgNodes, maxNodes,
@@ -1414,8 +1414,8 @@ public:
             }
         };
 
-        static const int AMOUNT_VERTICES = 32;
-        std::array<Vertex, AMOUNT_VERTICES> vertices;
+        static const int NUM_VERTICES = 32;
+        std::array<Vertex, NUM_VERTICES> vertices;
 
         /* Some aliases and local variables */
         const Scene *scene = rRec.scene;
@@ -1676,7 +1676,7 @@ public:
                         recordRadiance(throughput * value * weight);
                     }
 
-                    if (!(bRec.sampledType & BSDF::EDelta) && dTree && depth < AMOUNT_VERTICES) {
+                    if (!(bRec.sampledType & BSDF::EDelta) && dTree && depth < NUM_VERTICES) {
                         if (depth == 0 && m_isBuilt) {
                             measurementEstimate = dTree->measurementEstimate();
                         }
@@ -1899,7 +1899,7 @@ private:
 
     /**
         What type of budget to use. The following values are valid:
-        - "spp":     Budget is the amount of samples per pixel.
+        - "spp":     Budget is the number of samples per pixel.
         - "seconds": Budget is a time in seconds.
         Default = "seconds"
     */
@@ -1925,7 +1925,7 @@ private:
     int m_sdTreeMaxMemory;
 
     /**
-        Leaf nodes of the spatial binary tree are subdivided if the amount of samples
+        Leaf nodes of the spatial binary tree are subdivided if the number of samples
         they received in the last iteration exceeds c * sqrt(2^k) where c is this value
         and k is the iteration index. The first iteration has k==0.
         Default = 12000
