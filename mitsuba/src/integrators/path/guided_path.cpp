@@ -1526,6 +1526,18 @@ public:
                 if (!(rRec.type & RadianceQueryRecord::EIndirectMediumRadiance))
                     break;
                 rRec.type = RadianceQueryRecord::ERadianceNoEmission;
+
+                if (rRec.depth++ >= m_rrDepth) {
+                    /* Russian roulette: try to keep path weights equal to one,
+                    while accounting for the solid angle compression at refractive
+                    index boundaries. Stop with at least some probability to avoid
+                    getting stuck (e.g. due to total internal reflection) */
+
+                    Float q = std::min(throughput.max() * eta * eta, (Float) 0.95f);
+                    if (rRec.nextSample1D() >= q)
+                        break;
+                    throughput /= q;
+                }
             } else {
                 /* Sample
                 tau(x, y) (Surface integral). This happens with probability mRec.pdfFailure
@@ -1661,6 +1673,17 @@ public:
                 if (its.isMediumTransition())
                     rRec.medium = its.getTargetMedium(ray.d);
 
+                /* Handle index-matched medium transitions specially */
+                if (bRec.sampledType == BSDF::ENull) {
+                    if (!(rRec.type & RadianceQueryRecord::EIndirectSurfaceRadiance))
+                        break;
+                    rRec.type = scattered ? RadianceQueryRecord::ERadianceNoEmission
+                        : RadianceQueryRecord::ERadiance;
+                    scene->rayIntersect(ray, its);
+                    rRec.depth++;
+                    continue;
+                }
+
                 Spectrum value(0.0f);
                 rayIntersectAndLookForEmitter(scene, rRec.sampler, rRec.medium,
                     m_maxDepth - rRec.depth - 1, ray, its, dRec, value);
@@ -1713,7 +1736,7 @@ public:
                             successProb = throughput.max() * eta * eta;
                         } else {
                             // Adjoint-based russian roulette based on Vorba and Křivánek [2016]
-                            Spectrum incidentRadiance = Spectrum{dTree->estimateRadiance(ray.d)};
+                            Spectrum incidentRadiance = Spectrum{ dTree->estimateRadiance(ray.d) };
 
                             if (measurementEstimate.min() > 0 && incidentRadiance.min() > 0) {
                                 const Float center = (measurementEstimate / incidentRadiance).average();
