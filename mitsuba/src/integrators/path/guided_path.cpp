@@ -445,7 +445,7 @@ public:
     DTreeWrapper() {
     }
 
-    void recordRadiance(const Point& pos, const Vector& dir, Spectrum radiance, Point2 sample, bool shouldCount = true) {
+    void recordRadiance(const Point& pos, const Vector& dir, Spectrum radiance, bool shouldCount = true) {
         building.recordRadiance(pos, dirToCanonical(dir), radiance.average(), shouldCount);
     }
 
@@ -1409,8 +1409,8 @@ public:
                 dTree->recordMeasurement(r);
             }
 
-            void commit(Point2 sample, bool shouldCount) {
-                dTree->recordRadiance(ray.o, ray.d, radiance, sample, shouldCount);
+            void commit(bool shouldCount) {
+                dTree->recordRadiance(ray.o, ray.d, radiance, shouldCount);
             }
         };
 
@@ -1643,7 +1643,7 @@ public:
                                     value * weight,
                                 };
 
-                                v.commit(rRec.nextSample2D(), false);
+                                v.commit(false);
                             }
 
                             value *= bsdfVal;
@@ -1769,10 +1769,9 @@ public:
         avgPathLength += rRec.depth;
 
         if (depth > 0) {
-            const Point2 sample = rRec.nextSample2D();
             vertices[0].recordMeasurement(Li);
             for (int i = 0; i < depth; ++i) {
-                vertices[i].commit(sample, true);
+                vertices[i].commit(true);
             }
         }
 
