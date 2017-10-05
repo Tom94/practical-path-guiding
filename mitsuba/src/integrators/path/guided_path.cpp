@@ -445,7 +445,7 @@ public:
     DTreeWrapper() {
     }
 
-    void recordRadiance(const Point& pos, const Vector& dir, Spectrum radiance, Point2 sample, bool shouldCount = true) {
+    void recordRadiance(const Point& pos, const Vector& dir, Spectrum radiance, bool shouldCount = true) {
         building.recordRadiance(pos, dirToCanonical(dir), radiance.average(), shouldCount);
     }
 
@@ -1409,8 +1409,8 @@ public:
                 dTree->recordMeasurement(r);
             }
 
-            void commit(Point2 sample, bool shouldCount) {
-                dTree->recordRadiance(ray.o, ray.d, radiance, sample, shouldCount);
+            void commit(bool shouldCount) {
+                dTree->recordRadiance(ray.o, ray.d, radiance, shouldCount);
             }
         };
 
@@ -1526,6 +1526,18 @@ public:
                 if (!(rRec.type & RadianceQueryRecord::EIndirectMediumRadiance))
                     break;
                 rRec.type = RadianceQueryRecord::ERadianceNoEmission;
+
+                if (rRec.depth++ >= m_rrDepth) {
+                    /* Russian roulette: try to keep path weights equal to one,
+                    while accounting for the solid angle compression at refractive
+                    index boundaries. Stop with at least some probability to avoid
+                    getting stuck (e.g. due to total internal reflection) */
+
+                    Float q = std::min(throughput.max() * eta * eta, (Float) 0.95f);
+                    if (rRec.nextSample1D() >= q)
+                        break;
+                    throughput /= q;
+                }
             } else {
                 /* Sample
                 tau(x, y) (Surface integral). This happens with probability mRec.pdfFailure
@@ -1631,7 +1643,7 @@ public:
                                     value * weight,
                                 };
 
-                                v.commit(rRec.nextSample2D(), false);
+                                v.commit(false);
                             }
 
                             value *= bsdfVal;
@@ -1660,6 +1672,17 @@ public:
                 eta *= bRec.eta;
                 if (its.isMediumTransition())
                     rRec.medium = its.getTargetMedium(ray.d);
+
+                /* Handle index-matched medium transitions specially */
+                if (bRec.sampledType == BSDF::ENull) {
+                    if (!(rRec.type & RadianceQueryRecord::EIndirectSurfaceRadiance))
+                        break;
+                    rRec.type = scattered ? RadianceQueryRecord::ERadianceNoEmission
+                        : RadianceQueryRecord::ERadiance;
+                    scene->rayIntersect(ray, its);
+                    rRec.depth++;
+                    continue;
+                }
 
                 Spectrum value(0.0f);
                 rayIntersectAndLookForEmitter(scene, rRec.sampler, rRec.medium,
@@ -1713,7 +1736,7 @@ public:
                             successProb = throughput.max() * eta * eta;
                         } else {
                             // Adjoint-based russian roulette based on Vorba and Křivánek [2016]
-                            Spectrum incidentRadiance = Spectrum{dTree->estimateRadiance(ray.d)};
+                            Spectrum incidentRadiance = Spectrum{ dTree->estimateRadiance(ray.d) };
 
                             if (measurementEstimate.min() > 0 && incidentRadiance.min() > 0) {
                                 const Float center = (measurementEstimate / incidentRadiance).average();
@@ -1746,10 +1769,9 @@ public:
         avgPathLength += rRec.depth;
 
         if (depth > 0) {
-            const Point2 sample = rRec.nextSample2D();
             vertices[0].recordMeasurement(Li);
             for (int i = 0; i < depth; ++i) {
-                vertices[i].commit(sample, true);
+                vertices[i].commit(true);
             }
         }
 
