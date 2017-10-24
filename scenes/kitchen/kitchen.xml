@@ -2,14 +2,18 @@
 
 <scene version="0.5.0" >
 	<integrator type="guided_path">
-		<!-- Parameters for the guided path tracer by Vorba et al. [2014]
-		<integer name="maxDepth" value="40"/>
+		<!-- Parameters for the guided path tracer by Vorba et al. [2014] -->
+		<!--<integer name="maxDepth" value="40"/>
 		<integer name="nImportons" value="300000"/>
 		<integer name="nPhotons" value="300000"/>
 		<integer name="passes" value="30"/>
 		<boolean name="showVisualization" value="false"/>
 		<boolean name="strictNormals" value="true"/>
 		<boolean name="useEnvSampler" value="true"/>-->
+
+		<!-- Parameters for our guided path tracer -->
+		<string name="budgetType" value="spp"/>
+		<float name="budget" value="2400"/>
 	</integrator>
 
 	<sensor type="perspective" >
