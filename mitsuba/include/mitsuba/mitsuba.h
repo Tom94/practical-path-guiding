@@ -57,4 +57,8 @@ using std::endl;
 #include <mitsuba/core/spectrum.h>
 #include <mitsuba/core/util.h>
 
+#ifndef INFINITY 
+#define INFINITY __builtin_huge_valf() 
+#endif 
+
 #endif /* __MITSUBA_MITSUBA_H_ */
