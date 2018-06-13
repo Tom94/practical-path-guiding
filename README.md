@@ -33,7 +33,7 @@ The POOL scene—created by Ondřej Karlík—is bundled with the [public source
 - General
   - Changed the Visual Studio 2010 project to a Visual Studio 2013 project to make our integrator compile.
   - Removed the Irawan BSDF to make mitsuba compile under newer GCC versions.
-  - Always enabled the ADT_WORKAROUND in `ply_parser.hpp` to make mitsuba compile under newer GCC versions.
+  - Fixed various issues of the PLY parser to make mitsuba compile under newer GCC versions and clang.
 
 ### Modifications to nanogui
 
@@ -47,10 +47,11 @@ The POOL scene—created by Ondřej Karlík—is bundled with the [public source
 
 ### Mitsuba
 
-To compile the Mitsuba code, please follow the instructions from the [Mitsuba documentation](http://mitsuba-renderer.org/docs.html) (sections 4.1.1 through 4.6). Since our new code uses C++11 features, a slightly more recent compiler than reported in the mitsuba documentation may be required.
+To compile the Mitsuba code, please follow the instructions from the [Mitsuba documentation](http://mitsuba-renderer.org/docs.html) (sections 4.1.1 through 4.6). Since our new code uses C++11 features, a slightly more recent compiler and dependencies than reported in the mitsuba documentation may be required. We only support compiling mitsuba with the [scons](https://www.scons.org) build system.
 
 We tested our Mitsuba code on
-- Windows (Visual Studio 2013 Win64)
+- Windows (Visual Studio 2013 Win64, custom dependencies via `git clone https://github.com/Tom94/mitsuba-dependencies-windows mitsuba/dependencies`)
+- macOS (High Sierra, custom dependencies via `git clone https://github.com/Tom94/mitsuba-dependencies-macOS mitsuba/dependencies`)
 - Linux (GCC 6.3.1)
 
 ### Visualization Tool
@@ -59,6 +60,7 @@ The visualization tool, found in the *visualizer* subfolder, uses the [CMake](ht
 
 The visualization tool was tested on
 - Windows (Visual Studio 2013-2017 Win64)
+- macOS (High Sierra)
 - Linux (GCC 6.3.1)
 
 ## License
