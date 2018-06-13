@@ -1227,7 +1227,7 @@ public:
     }
 
     bool render(Scene *scene, RenderQueue *queue, const RenderJob *job,
-        int sceneResID, int sensorResID, int samplerResID) override {
+        int sceneResID, int sensorResID, int samplerResID) {
 
         m_sdTree = std::unique_ptr<STree>(new STree(scene->getAABB()));
         m_iter = 0;
@@ -1278,7 +1278,7 @@ public:
 
     void renderBlock(const Scene *scene, const Sensor *sensor,
         Sampler *sampler, ImageBlock *block, const bool &stop,
-        const std::vector< TPoint2<uint8_t> > &points) const override {
+        const std::vector< TPoint2<uint8_t> > &points) const {
 
         Float diffScaleFactor = 1.0f /
             std::sqrt((Float)m_sppPerPass);
