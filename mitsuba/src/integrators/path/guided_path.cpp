@@ -25,6 +25,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <fstream>
 #include <functional>
 #include <iomanip>
 #include <sstream>
