@@ -1401,9 +1401,13 @@ public:
             Spectrum radiance;
 
             void record(Spectrum& r) {
-                if (throughput[0] > 0) radiance[0] += r[0] / throughput[0];
-                if (throughput[1] > 0) radiance[1] += r[1] / throughput[1];
-                if (throughput[2] > 0) radiance[2] += r[2] / throughput[2];
+                // Only consider vertices with a throughput larger than epsilon to prevent
+                // fireflies with magnitudes that can't be handled. This is fine, because
+                // vertices with such low throughput (except for in contrived scenes)
+                // don't contribute anything meaningful to the final image.
+                if (throughput[0] > Epsilon) radiance[0] += r[0] / throughput[0];
+                if (throughput[1] > Epsilon) radiance[1] += r[1] / throughput[1];
+                if (throughput[2] > Epsilon) radiance[2] += r[2] / throughput[2];
             }
 
             void recordMeasurement(Spectrum& r) {
