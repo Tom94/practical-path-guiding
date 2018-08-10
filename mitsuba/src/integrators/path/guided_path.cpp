@@ -948,7 +948,7 @@ public:
     void resetSDTree() {
         Log(EInfo, "Resetting distributions for sampling.");
 
-        m_sdTree->refine((size_t)(std::pow(2, m_iter / 2.0f) * m_sTreeThreshold), m_sdTreeMaxMemory);
+        m_sdTree->refine((size_t)(std::sqrt(std::pow(2, m_iter) * m_sppPerPass / 4) * m_sTreeThreshold), m_sdTreeMaxMemory);
         m_sdTree->forEachDTreeWrapperParallel([this](DTreeWrapper* dTree) { dTree->reset(20, m_dTreeThreshold); });
     }
 
@@ -1149,7 +1149,7 @@ public:
         Float seconds = computeElapsedSeconds(start);
 
         const Float ttuv = seconds * variance;
-        const Float stuv = passesRenderedLocal * 4 * variance;
+        const Float stuv = passesRenderedLocal * m_sppPerPass * variance;
         Log(EInfo, "%.2f seconds, Total passes: %d, Var: %f, TTUV: %f, STUV: %f.",
             seconds, m_passesRendered, variance, ttuv, stuv);
 
