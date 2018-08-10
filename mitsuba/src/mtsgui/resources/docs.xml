@@ -126,6 +126,11 @@
     <param name="sdTreeMaxMemory" readableName="SD-Tree Maximum Memory Footprint" type="integer" default="-1" importance="1">
       Maximum memory footprint of the SDTree in MB. Stops subdividing once reached. -1 to disable.
     </param>
+    <param name="doFilteredSplatting" readableName="Filtered Splatting" type="boolean" default="true" importance="1">
+      Filtered splatting improves the learned distributions at the cost of extra computation.
+      It is especially useful for higher-resolution SDTrees which can be required
+      when illumination is localized.
+    </param>
     <param name="bsdfSamplingFraction" readableName="BSDF Sampling Fraction" type="float" default="0.5" importance="1">
       When guiding, we perform MIS with the balance heuristic between the guiding
       distribution and the BSDF, combined with probabilistically choosing one of the
