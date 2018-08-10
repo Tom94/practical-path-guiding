@@ -233,10 +233,10 @@ public:
     }
 
     Float mean() const {
-        if (m_atomic.nSamples == 0) {
+        if (m_atomic.statisticalWeight == 0) {
             return 0;
         }
-        const Float factor = 1 / (M_PI * 4 * m_atomic.nSamples);
+        const Float factor = 1 / (M_PI * 4 * m_atomic.statisticalWeight);
         return factor * m_atomic.sum;
     }
 
@@ -244,14 +244,13 @@ public:
         return m_atomic.getMeasurement();
     }
 
-    void recordRadiance(Point pos, Point2 p, Float radiance, bool count) {
-
+    void recordRadiance(Point2 p, Float radiance, Float statisticalWeight) {
         if (!std::isfinite(radiance)) {
             radiance = 0;
         }
 
-        if (count) {
-            ++m_atomic.nSamples;
+        if (statisticalWeight > 0) {
+            addToAtomicFloat(m_atomic.statisticalWeight, statisticalWeight);
         }
 
         addToAtomicFloat(m_atomic.sum, radiance);
@@ -264,11 +263,11 @@ public:
     }
 
     Float evalRadiance(Point2 p) const {
-        if (m_atomic.nSamples == 0) {
+        if (m_atomic.statisticalWeight == 0) {
             return 0;
         }
 
-        return m_nodes[0].eval(p, m_nodes) / (M_PI * m_atomic.nSamples);
+        return m_nodes[0].eval(p, m_nodes) / (4 * M_PI * m_atomic.statisticalWeight);
     }
 
     Float evalPdf(Point2 p) const {
@@ -302,12 +301,12 @@ public:
         return m_nodes.size();
     }
 
-    size_t numSamples() const {
-        return m_atomic.nSamples;
+    Float statisticalWeight() const {
+        return m_atomic.statisticalWeight;
     }
 
-    void setSamples(size_t nSamples) {
-        m_atomic.nSamples = nSamples;
+    void setStatisticalWeight(Float statisticalWeight) {
+        m_atomic.statisticalWeight = statisticalWeight;
     }
 
     void reset(const DTree& previousDTree, int newMaxDepth, Float subdivisionThreshold) {
@@ -379,7 +378,7 @@ private:
     struct Atomic {
         Atomic() {
             sum.store(0, std::memory_order_relaxed);
-            nSamples = 0;
+            statisticalWeight.store(0, std::memory_order_relaxed);
 
             measurementR.store(0, std::memory_order_relaxed);
             measurementG.store(0, std::memory_order_relaxed);
@@ -389,7 +388,7 @@ private:
 
         void copyFrom(const Atomic& arg) {
             sum.store(arg.sum.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            nSamples = arg.nSamples.load(std::memory_order_relaxed);
+            statisticalWeight.store(arg.statisticalWeight.load(std::memory_order_relaxed), std::memory_order_relaxed);
 
             measurementR.store(arg.measurementR.load(std::memory_order_relaxed), std::memory_order_relaxed);
             measurementG.store(arg.measurementG.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -407,7 +406,7 @@ private:
         }
 
         std::atomic<Float> sum;
-        std::atomic<size_t> nSamples;
+        std::atomic<Float> statisticalWeight;
 
         void recordMeasurement(const Spectrum& val) {
             ++nMeasurementSamples;
@@ -417,7 +416,6 @@ private:
         }
 
         Spectrum getMeasurement() const {
-
             size_t n = nMeasurementSamples.load(std::memory_order_relaxed);
             if (n == 0) {
                 return Spectrum{0.0f};
@@ -446,8 +444,8 @@ public:
     DTreeWrapper() {
     }
 
-    void recordRadiance(const Point& pos, const Vector& dir, Spectrum radiance, bool shouldCount = true) {
-        building.recordRadiance(pos, dirToCanonical(dir), radiance.average(), shouldCount);
+    void recordRadiance(const Vector& dir, Float radiance, Float statisticalWeight) {
+        building.recordRadiance(dirToCanonical(dir), radiance, statisticalWeight);
     }
 
     void recordMeasurement(Spectrum m) {
@@ -518,7 +516,7 @@ public:
         return sampling.numNodes();
     }
 
-    float meanRadiance() const {
+    Float meanRadiance() const {
         return sampling.mean();
     }
 
@@ -526,16 +524,16 @@ public:
         return sampling.getMeasurement();
     }
 
-    size_t numSamples() const {
-        return sampling.numSamples();
+    Float statisticalWeight() const {
+        return sampling.statisticalWeight();
     }
 
-    size_t numSamplesBuilding() const {
-        return building.numSamples();
+    Float statisticalWeightBuilding() const {
+        return building.statisticalWeight();
     }
 
-    void setSamplesBuilding(size_t nSamples) {
-        building.setSamples(nSamples);
+    void setStatisticalWeightBuilding(Float statisticalWeight) {
+        building.setStatisticalWeight(statisticalWeight);
     }
 
     size_t approxMemoryFootprint() const {
@@ -546,7 +544,7 @@ public:
         blob
             << (float)p.x << (float)p.y << (float)p.z
             << (float)size.x << (float)size.y << (float)size.z
-            << (float)sampling.mean() << (uint64_t)sampling.numSamples() << (uint64_t)sampling.numNodes();
+            << (float)sampling.mean() << (uint64_t)sampling.statisticalWeight() << (uint64_t)sampling.numNodes();
 
         for (size_t i = 0; i < sampling.numNodes(); ++i) {
             const auto& node = sampling.node(i);
@@ -583,12 +581,13 @@ struct STreeNode {
         return children[childIndex(p)];
     }
 
-    DTreeWrapper* dTreeWrapper(Point& p, std::vector<STreeNode>& nodes) {
+    DTreeWrapper* dTreeWrapper(Point& p, Vector& size, std::vector<STreeNode>& nodes) {
         SAssert(p[axis] >= 0 && p[axis] <= 1);
         if (isLeaf) {
             return &dTree;
         } else {
-            return nodes[nodeIndex(p)].dTreeWrapper(p, nodes);
+            size[axis] /= 2;
+            return nodes[nodeIndex(p)].dTreeWrapper(p, size, nodes);
         }
     }
 
@@ -632,6 +631,26 @@ struct STreeNode {
                 }
 
                 nodes[children[i]].forEachLeaf(func, childP, size, nodes);
+            }
+        }
+    }
+
+    void recordRadiance(const AABB& kernel, AABB voxel, const Vector& d, Float radiance, Float statisticalWeight, std::vector<STreeNode>& nodes) {
+        AABB clippedVoxel = voxel;
+        clippedVoxel.clip(kernel);
+        Float w = clippedVoxel.getVolume();
+        if (w > 0) {
+            if (isLeaf) {
+                dTree.recordRadiance(d, radiance * w, statisticalWeight * w);
+            } else {
+                Float childSize = (voxel.max[axis] - voxel.min[axis]) / 2;
+                AABB childVoxel = voxel;
+                childVoxel.max[axis] -= childSize;
+                nodes[children[0]].recordRadiance(kernel, childVoxel, d, radiance, statisticalWeight, nodes);
+
+                childVoxel = voxel;
+                childVoxel.min[axis] += childSize;
+                nodes[children[1]].recordRadiance(kernel, childVoxel, d, radiance, statisticalWeight, nodes);
             }
         }
     }
@@ -686,20 +705,25 @@ public:
             cur.children[i] = idx;
             nodes[idx].axis = (cur.axis + 1) % 3;
             nodes[idx].dTree = cur.dTree;
-            nodes[idx].dTree.setSamplesBuilding(nodes[idx].dTree.numSamplesBuilding() / 2);
+            nodes[idx].dTree.setStatisticalWeightBuilding(nodes[idx].dTree.statisticalWeightBuilding() / 2);
         }
         cur.isLeaf = false;
         cur.dTree = {}; // Reset to an empty dtree to save memory.
     }
 
-    DTreeWrapper* dTreeWrapper(Point p) {
-        Vector size = m_aabb.max - m_aabb.min;
+    DTreeWrapper* dTreeWrapper(Point p, Vector& size) {
+        size = m_aabb.getExtents();
         p = Point(p - m_aabb.min);
         p.x /= size.x;
         p.y /= size.y;
         p.z /= size.z;
 
-        return m_nodes[0].dTreeWrapper(p, m_nodes);
+        return m_nodes[0].dTreeWrapper(p, size, m_nodes);
+    }
+
+    DTreeWrapper* dTreeWrapper(Point p) {
+        Vector size;
+        return dTreeWrapper(p, size);
     }
 
     void forEachDTreeWrapperConst(std::function<void(const DTreeWrapper*)> func) const {
@@ -725,16 +749,30 @@ public:
         }
     }
 
+    void recordRadiance(Point p, const Vector& d, Float radiance, Float statisticalWeight) {
+        Vector size;
+        const auto* centerNode = dTreeWrapper(p, size);
+
+        if (!centerNode) {
+            return;
+        }
+
+        AABB kernel = {p - size * 0.5f, p + size * 0.5f};
+        Float volume = kernel.getVolume();
+
+        m_nodes[0].recordRadiance(kernel, m_aabb, d, radiance / volume, statisticalWeight / volume, m_nodes);
+    }
+
     void dump(BlobWriter& blob) const {
         forEachDTreeWrapperConstP([&blob](const DTreeWrapper* dTree, const Point& p, const Vector& size) {
-            if (dTree->numSamples() > 0) {
+            if (dTree->statisticalWeight() > 0) {
                 dTree->dump(blob, p, size);
             }
         });
     }
 
     bool shallSplit(const STreeNode& node, int depth, size_t samplesRequired) {
-        return m_nodes.size() < std::numeric_limits<uint32_t>::max() - 1 && node.dTree.numSamplesBuilding() > samplesRequired;
+        return m_nodes.size() < std::numeric_limits<uint32_t>::max() - 1 && node.dTree.statisticalWeightBuilding() > samplesRequired;
     }
 
     void refine(size_t sTreeThreshold, int maxMB) {
@@ -802,6 +840,7 @@ public:
             Assert(false);
         }
 
+        m_doFilteredSplatting = props.getBoolean("doFilteredSplatting", true);
         m_sdTreeMaxMemory = props.getInteger("sdTreeMaxMemory", -1);
         m_sTreeThreshold = props.getInteger("sTreeThreshold", 12000);
         m_dTreeThreshold = props.getFloat("dTreeThreshold", 0.01f);
@@ -866,9 +905,9 @@ public:
         size_t maxNodes = 0;
         size_t minNodes = std::numeric_limits<size_t>::max();
         Float avgNodes = 0;
-        size_t maxSamples = 0;
-        size_t minSamples = std::numeric_limits<size_t>::max();
-        Float avgSamples = 0;
+        Float maxStatisticalWeight = 0;
+        Float minStatisticalWeight = std::numeric_limits<Float>::max();
+        Float avgStatisticalWeight = 0;
 
         int nPoints = 0;
         int nPointsNodes = 0;
@@ -892,10 +931,10 @@ public:
                 ++nPointsNodes;
             }
 
-            const size_t samples = dTree->numSamples();
-            maxSamples = std::max(maxSamples, samples);
-            minSamples = std::min(minSamples, samples);
-            avgSamples += samples;
+            const Float statisticalWeight = dTree->statisticalWeight();
+            maxStatisticalWeight = std::max(maxStatisticalWeight, statisticalWeight);
+            minStatisticalWeight = std::min(minStatisticalWeight, statisticalWeight);
+            avgStatisticalWeight += statisticalWeight;
 
             ++nPoints;
         });
@@ -908,7 +947,7 @@ public:
                 avgNodes /= nPointsNodes;
             }
 
-            avgSamples /= nPoints;
+            avgStatisticalWeight /= nPoints;
         }
 
         Log(EInfo,
@@ -916,11 +955,11 @@ public:
             "  Depth         = [%d, %f, %d]\n"
             "  Mean radiance = [%f, %f, %f]\n"
             "  Node count    = [" SIZE_T_FMT ", %f, " SIZE_T_FMT "]\n"
-            "  Sample count  = [" SIZE_T_FMT ", %f, " SIZE_T_FMT "]\n",
+            "  Stat. weight  = [%f, %f, %f]\n",
             minDepth, avgDepth, maxDepth,
             minAvgRadiance, avgAvgRadiance, maxAvgRadiance,
             minNodes, avgNodes, maxNodes,
-            minSamples, avgSamples, maxSamples
+            minStatisticalWeight, avgStatisticalWeight, maxStatisticalWeight
         );
 
         m_isBuilt = true;
@@ -1414,8 +1453,12 @@ public:
                 dTree->recordMeasurement(r);
             }
 
-            void commit(bool shouldCount) {
-                dTree->recordRadiance(ray.o, ray.d, radiance, shouldCount);
+            void commit(STree& sdTree, Float statisticalWeight) {
+                sdTree.recordRadiance(ray.o, ray.d, radiance.average(), statisticalWeight);
+            }
+
+            void commit(Float statisticalWeight) {
+                dTree->recordRadiance(ray.d, radiance.average(), statisticalWeight);
             }
         };
 
@@ -1648,7 +1691,11 @@ public:
                                     value * weight,
                                 };
 
-                                v.commit(false);
+                                if (m_doFilteredSplatting) {
+                                    v.commit(*m_sdTree, 0);
+                                } else {
+                                    v.commit(0);
+                                }
                             }
 
                             value *= bsdfVal;
@@ -1775,8 +1822,14 @@ public:
 
         if (depth > 0) {
             vertices[0].recordMeasurement(Li);
-            for (int i = 0; i < depth; ++i) {
-                vertices[i].commit(true);
+            if (m_doFilteredSplatting) {
+                for (int i = 0; i < depth; ++i) {
+                    vertices[i].commit(*m_sdTree, 1);
+                }
+            } else {
+                for (int i = 0; i < depth; ++i) {
+                    vertices[i].commit(1);
+                }
             }
         }
 
@@ -1950,6 +2003,15 @@ private:
 
     /// Maximum memory footprint of the SDTree in MB. Stops subdividing once reached. -1 to disable.
     int m_sdTreeMaxMemory;
+
+    /**
+        Whether to perform tent filtering when splatting radiance samples into the
+        SDTree. This option improves the quality of the learned distributions at
+        a given sample count at the cost of a small performance impact stemming
+        from splatting into multiple leaves at once.
+        Default = true
+    */
+    bool m_doFilteredSplatting;
 
     /**
         Leaf nodes of the spatial binary tree are subdivided if the number of samples

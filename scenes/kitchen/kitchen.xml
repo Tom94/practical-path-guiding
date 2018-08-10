@@ -14,6 +14,11 @@
 		<!-- Parameters for our guided path tracer -->
 		<string name="budgetType" value="spp"/>
 		<float name="budget" value="2400"/>
+		<!--
+			Filtered splatting improves the learned distributions, but
+			we did not do it in the paper, so we disable it here for reproducibility's sake.
+		-->
+		<boolean name="doFilteredSplatting" value="false"/>
 	</integrator>
 
 	<sensor type="perspective" >
