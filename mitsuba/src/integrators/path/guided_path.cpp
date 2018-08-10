@@ -229,13 +229,11 @@ public:
             }
 
             float w = computeOverlappingArea(origin, origin + Point2(size), childOrigin, childOrigin + Point2(childSize));
-            w /= size * size;
-
             if (w > 0.0f) {
-                if (!isLeaf(i)) {
-                    nodes[child(i)].record(origin, size, childOrigin, childSize, value, nodes);
-                } else {
+                if (isLeaf(i)) {
                     addToAtomicFloat(m_mean[i], value * w);
+                } else {
+                    nodes[child(i)].record(origin, size, childOrigin, childSize, value, nodes);
                 }
             }
         }
@@ -296,18 +294,16 @@ public:
         }
 
         if (std::isfinite(radiance) && radiance > 0) {
-            addToAtomicFloat(m_atomic.sum, radiance);
-
             if (!doFilteredSplatting) {
                 m_nodes[0].record(p, radiance, m_nodes);
             } else {
-                int depth = m_nodes[0].depthAt(p, m_nodes);
+                int depth = depthAt(p);
                 Float size = std::pow(0.5f, depth);
 
                 Point2 origin = p;
                 origin.x -= size / 2;
                 origin.y -= size / 2;
-                m_nodes[0].record(origin, size, Point2(0.0f), 1.0f, radiance, m_nodes);
+                m_nodes[0].record(origin, size, Point2(0.0f), 1.0f, radiance / (size * size), m_nodes);
             }
         }
     }
@@ -701,22 +697,28 @@ struct STreeNode {
         }
     }
 
-    void recordRadiance(const AABB& kernel, AABB voxel, const Vector& d, Float radiance, Float statisticalWeight, bool doFilteredSplatting, std::vector<STreeNode>& nodes) {
-        AABB clippedVoxel = voxel;
-        clippedVoxel.clip(kernel);
-        Float w = clippedVoxel.getVolume();
+    Float computeOverlappingVolume(const Point& min1, const Point& max1, const Point& min2, const Point& max2) {
+        float area = 1;
+        for (int i = 0; i < 3; ++i) {
+            area *= std::max(std::min(max1[i], max2[i]) - std::max(min1[i], min2[i]), 0.0f);
+        }
+        return area;
+    }
+
+    void recordRadiance(const Point& min1, const Point& max1, Point min2, Vector size2, const Vector& d, Float radiance, Float statisticalWeight, bool doFilteredSplatting, std::vector<STreeNode>& nodes) {
+        Float w = computeOverlappingVolume(min1, max1, min2, min2 + size2);
         if (w > 0) {
             if (isLeaf) {
                 dTree.recordRadiance(d, radiance * w, statisticalWeight * w, doFilteredSplatting);
             } else {
-                Float childSize = (voxel.max[axis] - voxel.min[axis]) / 2;
-                AABB childVoxel = voxel;
-                childVoxel.max[axis] -= childSize;
-                nodes[children[0]].recordRadiance(kernel, childVoxel, d, radiance, statisticalWeight, doFilteredSplatting, nodes);
+                size2[axis] /= 2;
+                for (int i = 0; i < 2; ++i) {
+                    if (i & 1) {
+                        min2[axis] += size2[axis];
+                    }
 
-                childVoxel = voxel;
-                childVoxel.min[axis] += childSize;
-                nodes[children[1]].recordRadiance(kernel, childVoxel, d, radiance, statisticalWeight, doFilteredSplatting, nodes);
+                    nodes[children[i]].recordRadiance(min1, max1, min2, size2, d, radiance, statisticalWeight, doFilteredSplatting, nodes);
+                }
             }
         }
     }
@@ -815,18 +817,13 @@ public:
         }
     }
 
-    void recordRadiance(Point p, const Vector& d, Float radiance, Float statisticalWeight, bool doFilteredSplatting) {
-        Vector size;
-        const auto* centerNode = dTreeWrapper(p, size);
-
-        if (!centerNode) {
-            return;
+    void recordRadiance(const Point& p, const Vector& dTreeVoxelSize, const Vector& d, Float radiance, Float statisticalWeight, bool doFilteredSplatting) {
+        Float volume = 1;
+        for (int i = 0; i < 3; ++i) {
+            volume *= dTreeVoxelSize[i];
         }
 
-        AABB kernel = {p - size * 0.5f, p + size * 0.5f};
-        Float volume = kernel.getVolume();
-
-        m_nodes[0].recordRadiance(kernel, m_aabb, d, radiance / volume, statisticalWeight / volume, doFilteredSplatting, m_nodes);
+        m_nodes[0].recordRadiance(p - dTreeVoxelSize * 0.5f, p + dTreeVoxelSize * 0.5f, m_aabb.min, m_aabb.getExtents(), d, radiance / volume, statisticalWeight / volume, doFilteredSplatting, m_nodes);
     }
 
     void dump(BlobWriter& blob) const {
@@ -1196,6 +1193,8 @@ public:
             const int passesThisIteration = std::min(remainingPasses, 1 << m_iter);
 
             Log(EInfo, "ITERATION %d, %d passes", m_iter, passesThisIteration);
+            
+            m_isFinalIter = passesThisIteration >= remainingPasses;
 
             film->clear();
             resetSDTree();
@@ -1226,6 +1225,7 @@ public:
                     (sppRendered > 256 && currentVarAtEnd > lastVarAtEnd)
                 )) {
                 Log(EInfo, "FINAL %d passes", remainingPasses);
+                m_isFinalIter = true;
                 if (!performRenderPasses(variance, remainingPasses, scene, queue, job, sceneResID, sensorResID, samplerResID, integratorResID)) {
                     result = false;
                     break;
@@ -1308,6 +1308,7 @@ public:
                     (sppRendered > 256 && currentVarAtEnd > lastVarAtEnd)
                 )) {
                 Log(EInfo, "FINAL %f seconds", remainingTime);
+                m_isFinalIter = true;
                 do {
                     if (!performRenderPasses(variance, passesThisIteration, scene, queue, job, sceneResID, sensorResID, samplerResID, integratorResID)) {
                         result = false;
@@ -1336,6 +1337,7 @@ public:
 
         m_sdTree = std::unique_ptr<STree>(new STree(scene->getAABB()));
         m_iter = 0;
+        m_isFinalIter = false;
 
         ref<Scheduler> sched = Scheduler::getInstance();
 
@@ -1501,6 +1503,7 @@ public:
     Spectrum Li(const RayDifferential &r, RadianceQueryRecord &rRec) const {
         struct Vertex {
             DTreeWrapper* dTree;
+            Vector dTreeVoxelSize;
             Ray ray;
             Spectrum throughput;
             Spectrum radiance;
@@ -1521,7 +1524,7 @@ public:
 
             void commit(STree& sdTree, Float statisticalWeight, bool doFilteredSplatting) {
                 if (doFilteredSplatting) {
-                    sdTree.recordRadiance(ray.o, ray.d, radiance.average(), statisticalWeight, true);
+                    sdTree.recordRadiance(ray.o, dTreeVoxelSize, ray.d, radiance.average(), statisticalWeight, true);
                 } else {
                     dTree->recordRadiance(ray.d, radiance.average(), statisticalWeight, false);
                 }
@@ -1694,13 +1697,14 @@ public:
 
                 const BSDF *bsdf = its.getBSDF(ray);
 
+                Vector dTreeVoxelSize;
                 DTreeWrapper* dTree = nullptr;
 
                 // We only guide smooth BRDFs for now. Analytic product sampling
                 // would be conceivable for discrete decisions such as refraction vs
                 // reflection.
                 if (bsdf->getType() & BSDF::ESmooth) {
-                    dTree = m_sdTree->dTreeWrapper(its.p);
+                    dTree = m_sdTree->dTreeWrapper(its.p, dTreeVoxelSize);
                 }
 
                 /* ==================================================================== */
@@ -1749,15 +1753,18 @@ public:
                             /* Weight using the power heuristic */
                             const Float weight = miWeight(dRec.pdf, bsdfPdf);
 
-                            if (dTree) {
-                                Vertex v = Vertex{
-                                    dTree,
-                                    Ray(its.p, dRec.d, 0),
-                                    Spectrum{0.0f},
-                                    value * weight,
-                                };
+                            if (!m_isFinalIter) {
+                                if (dTree) {
+                                    Vertex v = Vertex{
+                                        dTree,
+                                        dTreeVoxelSize,
+                                        Ray(its.p, dRec.d, 0),
+                                        Spectrum{0.0f},
+                                        value * weight,
+                                    };
 
-                                v.commit(*m_sdTree, 0, m_doFilteredSplatting);
+                                    v.commit(*m_sdTree, 0, m_doFilteredSplatting);
+                                }
                             }
 
                             value *= bsdfVal;
@@ -1813,7 +1820,7 @@ public:
                         recordRadiance(throughput * value * weight);
                     }
 
-                    if (!(bRec.sampledType & BSDF::EDelta) && dTree && depth < NUM_VERTICES) {
+                    if (!(bRec.sampledType & BSDF::EDelta) && dTree && depth < NUM_VERTICES && !m_isFinalIter) {
                         if (depth == 0 && m_isBuilt) {
                             measurementEstimate = dTree->measurementEstimate();
                         }
@@ -1822,6 +1829,7 @@ public:
                         if (factor > 0) {
                             vertices[depth] = Vertex{
                                 dTree,
+                                dTreeVoxelSize,
                                 ray,
                                 throughput / factor,
                                 value * factor * weight,
@@ -2045,6 +2053,7 @@ private:
 
     bool m_isBuilt = false;
     int m_iter;
+    bool m_isFinalIter = false;
 
     int m_sppPerPass;
 
