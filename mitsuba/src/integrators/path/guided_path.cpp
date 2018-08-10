@@ -202,15 +202,61 @@ public:
         SAssert(p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1);
         int index = childIndex(p);
 
-        addToAtomicFloat(m_mean[index], radiance);
-
-        if (!isLeaf(index)) {
+        if (isLeaf(index)) {
+            addToAtomicFloat(m_mean[index], radiance);
+        } else {
             nodes[child(index)].record(p, radiance, nodes);
+        }
+    }
+
+    Float computeOverlappingArea(const Point2& min1, const Point2& max1, const Point2& min2, const Point2& max2) {
+        float area = 1;
+        for (int i = 0; i < 2; ++i) {
+            area *= std::max(std::min(max1[i], max2[i]) - std::max(min1[i], min2[i]), 0.0f);
+        }
+        return area;
+    }
+
+    void record(const Point2& origin, float size, Point2 nodeOrigin, float nodeSize, float value, std::vector<QuadTreeNode>& nodes) {
+        float childSize = nodeSize / 2;
+        for (int i = 0; i < 4; ++i) {
+            Point2 childOrigin = nodeOrigin;
+            if (i & 1) {
+                childOrigin[0] += childSize;
+            }
+            if (i & 2) {
+                childOrigin[1] += childSize;
+            }
+
+            float w = computeOverlappingArea(origin, origin + Point2(size), childOrigin, childOrigin + Point2(childSize));
+            w /= size * size;
+
+            if (w > 0.0f) {
+                if (!isLeaf(i)) {
+                    nodes[child(i)].record(origin, size, childOrigin, childSize, value, nodes);
+                } else {
+                    addToAtomicFloat(m_mean[i], value * w);
+                }
+            }
         }
     }
 
     bool isLeaf(int index) const {
         return child(index) == 0;
+    }
+
+    void build(std::vector<QuadTreeNode>& nodes) {
+        for (int i = 0; i < 4; ++i) {
+            if (!isLeaf(i)) {
+                QuadTreeNode& c = nodes[child(i)];
+                c.build(nodes);
+                Float mean = 0;
+                for (int j = 0; j < 4; ++j) {
+                    mean += c.mean(j);
+                }
+                setMean(i, mean);
+            }
+        }
     }
 
 private:
@@ -244,18 +290,26 @@ public:
         return m_atomic.getMeasurement();
     }
 
-    void recordRadiance(Point2 p, Float radiance, Float statisticalWeight) {
-        if (!std::isfinite(radiance)) {
-            radiance = 0;
-        }
-
-        if (statisticalWeight > 0) {
+    void recordRadiance(Point2 p, Float radiance, Float statisticalWeight, bool doFilteredSplatting) {
+        if (std::isfinite(statisticalWeight) && statisticalWeight > 0) {
             addToAtomicFloat(m_atomic.statisticalWeight, statisticalWeight);
         }
 
-        addToAtomicFloat(m_atomic.sum, radiance);
+        if (std::isfinite(radiance) && radiance > 0) {
+            addToAtomicFloat(m_atomic.sum, radiance);
 
-        m_nodes[0].record(p, radiance, m_nodes);
+            if (!doFilteredSplatting) {
+                m_nodes[0].record(p, radiance, m_nodes);
+            } else {
+                int depth = m_nodes[0].depthAt(p, m_nodes);
+                Float size = std::pow(0.5f, depth);
+
+                Point2 origin = p;
+                origin.x -= size / 2;
+                origin.y -= size / 2;
+                m_nodes[0].record(origin, size, Point2(0.0f), 1.0f, radiance, m_nodes);
+            }
+        }
     }
 
     void recordMeasurement(const Spectrum& m) {
@@ -372,6 +426,17 @@ public:
         return m_nodes.capacity() * sizeof(QuadTreeNode) + sizeof(*this);
     }
 
+    void build() {
+        auto& root = m_nodes[0];
+        root.build(m_nodes);
+
+        Float mean = 0;
+        for (int i = 0; i < 4; ++i) {
+            mean += root.mean(i);
+        }
+        m_atomic.sum.store(mean);
+    }
+
 private:
     std::vector<QuadTreeNode> m_nodes;
 
@@ -444,8 +509,8 @@ public:
     DTreeWrapper() {
     }
 
-    void recordRadiance(const Vector& dir, Float radiance, Float statisticalWeight) {
-        building.recordRadiance(dirToCanonical(dir), radiance, statisticalWeight);
+    void recordRadiance(const Vector& dir, Float radiance, Float statisticalWeight, bool doFilteredSplatting) {
+        building.recordRadiance(dirToCanonical(dir), radiance, statisticalWeight, doFilteredSplatting);
     }
 
     void recordMeasurement(Spectrum m) {
@@ -489,6 +554,7 @@ public:
     }
 
     void build() {
+        building.build();
         sampling = building;
     }
 
@@ -635,22 +701,22 @@ struct STreeNode {
         }
     }
 
-    void recordRadiance(const AABB& kernel, AABB voxel, const Vector& d, Float radiance, Float statisticalWeight, std::vector<STreeNode>& nodes) {
+    void recordRadiance(const AABB& kernel, AABB voxel, const Vector& d, Float radiance, Float statisticalWeight, bool doFilteredSplatting, std::vector<STreeNode>& nodes) {
         AABB clippedVoxel = voxel;
         clippedVoxel.clip(kernel);
         Float w = clippedVoxel.getVolume();
         if (w > 0) {
             if (isLeaf) {
-                dTree.recordRadiance(d, radiance * w, statisticalWeight * w);
+                dTree.recordRadiance(d, radiance * w, statisticalWeight * w, doFilteredSplatting);
             } else {
                 Float childSize = (voxel.max[axis] - voxel.min[axis]) / 2;
                 AABB childVoxel = voxel;
                 childVoxel.max[axis] -= childSize;
-                nodes[children[0]].recordRadiance(kernel, childVoxel, d, radiance, statisticalWeight, nodes);
+                nodes[children[0]].recordRadiance(kernel, childVoxel, d, radiance, statisticalWeight, doFilteredSplatting, nodes);
 
                 childVoxel = voxel;
                 childVoxel.min[axis] += childSize;
-                nodes[children[1]].recordRadiance(kernel, childVoxel, d, radiance, statisticalWeight, nodes);
+                nodes[children[1]].recordRadiance(kernel, childVoxel, d, radiance, statisticalWeight, doFilteredSplatting, nodes);
             }
         }
     }
@@ -749,7 +815,7 @@ public:
         }
     }
 
-    void recordRadiance(Point p, const Vector& d, Float radiance, Float statisticalWeight) {
+    void recordRadiance(Point p, const Vector& d, Float radiance, Float statisticalWeight, bool doFilteredSplatting) {
         Vector size;
         const auto* centerNode = dTreeWrapper(p, size);
 
@@ -760,7 +826,7 @@ public:
         AABB kernel = {p - size * 0.5f, p + size * 0.5f};
         Float volume = kernel.getVolume();
 
-        m_nodes[0].recordRadiance(kernel, m_aabb, d, radiance / volume, statisticalWeight / volume, m_nodes);
+        m_nodes[0].recordRadiance(kernel, m_aabb, d, radiance / volume, statisticalWeight / volume, doFilteredSplatting, m_nodes);
     }
 
     void dump(BlobWriter& blob) const {
@@ -1453,12 +1519,12 @@ public:
                 dTree->recordMeasurement(r);
             }
 
-            void commit(STree& sdTree, Float statisticalWeight) {
-                sdTree.recordRadiance(ray.o, ray.d, radiance.average(), statisticalWeight);
-            }
-
-            void commit(Float statisticalWeight) {
-                dTree->recordRadiance(ray.d, radiance.average(), statisticalWeight);
+            void commit(STree& sdTree, Float statisticalWeight, bool doFilteredSplatting) {
+                if (doFilteredSplatting) {
+                    sdTree.recordRadiance(ray.o, ray.d, radiance.average(), statisticalWeight, true);
+                } else {
+                    dTree->recordRadiance(ray.d, radiance.average(), statisticalWeight, false);
+                }
             }
         };
 
@@ -1691,11 +1757,7 @@ public:
                                     value * weight,
                                 };
 
-                                if (m_doFilteredSplatting) {
-                                    v.commit(*m_sdTree, 0);
-                                } else {
-                                    v.commit(0);
-                                }
+                                v.commit(*m_sdTree, 0, m_doFilteredSplatting);
                             }
 
                             value *= bsdfVal;
@@ -1822,14 +1884,8 @@ public:
 
         if (depth > 0) {
             vertices[0].recordMeasurement(Li);
-            if (m_doFilteredSplatting) {
-                for (int i = 0; i < depth; ++i) {
-                    vertices[i].commit(*m_sdTree, 1);
-                }
-            } else {
-                for (int i = 0; i < depth; ++i) {
-                    vertices[i].commit(1);
-                }
+            for (int i = 0; i < depth; ++i) {
+                vertices[i].commit(*m_sdTree, 1, m_doFilteredSplatting);
             }
         }
 
