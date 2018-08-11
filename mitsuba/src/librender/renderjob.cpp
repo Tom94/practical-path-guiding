@@ -104,9 +104,10 @@ void RenderJob::run() {
 				m_cancelled = true;
 				Log(EWarn, "Rendering of scene \"%s\" did not complete successfully!",
 					m_scene->getSourceFile().filename().string().c_str());
+			} else {
+				Log(EInfo, "Render time: %s", timeString(m_queue->getRenderTime(this), true).c_str());
+				m_scene->postprocess(m_queue, this, m_sceneResID, m_sensorResID, m_samplerResID);
 			}
-			Log(EInfo, "Render time: %s", timeString(m_queue->getRenderTime(this), true).c_str());
-			m_scene->postprocess(m_queue, this, m_sceneResID, m_sensorResID, m_samplerResID);
 		}
 	} catch (const std::exception &ex) {
 		Log(EWarn, "Rendering of scene \"%s\" did not complete successfully, caught exception: %s",

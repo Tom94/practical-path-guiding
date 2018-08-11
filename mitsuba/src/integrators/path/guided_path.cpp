@@ -1366,10 +1366,10 @@ public:
         m_passesRendered = 0;
         switch (m_budgetType) {
             case ESpp:
-                renderSPP(scene, queue, job, sceneResID, sensorResID, samplerResID, integratorResID);
+                result = renderSPP(scene, queue, job, sceneResID, sensorResID, samplerResID, integratorResID);
                 break;
             case ESeconds:
-                renderTime(scene, queue, job, sceneResID, sensorResID, samplerResID, integratorResID);
+                result = renderTime(scene, queue, job, sceneResID, sensorResID, samplerResID, integratorResID);
                 break;
             default:
                 Assert(false);
