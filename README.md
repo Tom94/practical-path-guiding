@@ -26,6 +26,7 @@ The POOL scene—created by Ondřej Karlík—is bundled with the [public source
   - Disabled automatic progress bookkeeping.
 - `GuidedPathTracer` (*guided_path.cpp*)
   - Added the guided path tracer implementing [Müller et al. 2017].
+  - Added `guided_path` to `src/integrator/SConscript` and `src/mtsgui/resources/docs.xml`. 
 - `ImageBlock` (*imageblock.h*)
   - Allowed querying the reconstruction filter.
 - `MainWindow` (*mainwindow.cpp*)
@@ -51,6 +52,7 @@ To compile the Mitsuba code, please follow the instructions from the [Mitsuba do
 
 We tested our Mitsuba code on
 - Windows (Visual Studio 2013 Win64, custom dependencies via `git clone https://github.com/Tom94/mitsuba-dependencies-windows mitsuba/dependencies`)
+  - Note: It is possible to compile Mitsuba (v0.6.0) directly with Visual Studio 2017 (Win64) now, please refer to the [Mitsuba repository](https://github.com/mitsuba-renderer/mitsuba/blob/master/doc/compiling.tex). After a successful compilation of Mitsuba with VS2017, update the files that are changed by this project (as mentioned in "Modifications to Mitsuba", from `BlockedRenderProcess` to `MainWindow`) and rebuild Mitsuba will add `guided_path` integrator to Mitsuba. 
 - macOS (High Sierra, custom dependencies via `git clone https://github.com/Tom94/mitsuba-dependencies-macOS mitsuba/dependencies`)
 - Linux (GCC 6.3.1)
 
