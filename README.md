@@ -31,6 +31,7 @@ The POOL scene—created by Ondřej Karlík—is bundled with the [public source
 - `MainWindow` (*mainwindow.cpp*)
   - Removed warning about orphaned rectangular work units (occured when multiple threads write into spatially overlapping blocks at the same time).
 - General
+  - Added `guided_path` to `src/integrator/SConscript` (for compilation) and `src/mtsgui/resources/docs.xml` (for mtsgui).
   - Changed the Visual Studio 2010 project to a Visual Studio 2013 project to make our integrator compile.
   - Removed the Irawan BSDF to make mitsuba compile under newer GCC versions.
   - Fixed various issues of the PLY parser to make mitsuba compile under newer GCC versions and clang.
