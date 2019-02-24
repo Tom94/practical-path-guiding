@@ -1523,6 +1523,10 @@ public:
             }
 
             void commit(STree& sdTree, Float statisticalWeight, bool doFilteredSplatting) {
+                if (radiance.isZero()) {
+                    return;
+                }
+
                 if (doFilteredSplatting) {
                     sdTree.recordRadiance(ray.o, dTreeVoxelSize, ray.d, radiance.average(), statisticalWeight, true);
                 } else {
@@ -1753,7 +1757,7 @@ public:
                             /* Weight using the power heuristic */
                             const Float weight = miWeight(dRec.pdf, bsdfPdf);
 
-                            if (!m_isFinalIter) {
+                            if (!m_isFinalIter && m_nee != EAlways) {
                                 if (dTree) {
                                     Vertex v = Vertex{
                                         dTree,
@@ -1826,13 +1830,14 @@ public:
                         }
 
                         Float factor = 1 / bsdfPdf;
+                        Spectrum radiance = m_nee == EAlways ? Spectrum{0.0f} : (value * factor * weight);
                         if (factor > 0) {
                             vertices[depth] = Vertex{
                                 dTree,
                                 dTreeVoxelSize,
                                 ray,
                                 throughput / factor,
-                                value * factor * weight,
+                                radiance,
                             };
 
                             ++depth;
