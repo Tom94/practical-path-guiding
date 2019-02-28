@@ -1696,6 +1696,10 @@ public:
             }
 
             void commit(STree& sdTree, Float statisticalWeight, bool doFilteredSplatting, bool learnBsdfSamplingFraction) {
+                if (radiance.isZero()) {
+                    return;
+                }
+                
                 if (throughput[0] * woPdf > Epsilon) radiance[0] /= throughput[0];
                 if (throughput[1] * woPdf > Epsilon) radiance[1] /= throughput[1];
                 if (throughput[2] * woPdf > Epsilon) radiance[2] /= throughput[2];
