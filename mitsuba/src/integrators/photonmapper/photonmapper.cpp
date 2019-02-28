@@ -430,7 +430,7 @@ public:
 		if (its.hasSubsurface() && (rRec.type & RadianceQueryRecord::ESubsurfaceRadiance))
 			LiSurf += its.LoSub(scene, rRec.sampler, -ray.d, rRec.depth);
 
-		const BSDF *bsdf = its.getBSDF(ray);
+		const BSDF *bsdf = its.getBSDF();
 
 		if (rRec.depth >= m_maxDepth && m_maxDepth > 0)
 			return LiSurf * transmittance + LiMedium;

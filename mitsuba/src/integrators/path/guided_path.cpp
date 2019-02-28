@@ -1878,7 +1878,7 @@ public:
                 if (wiDotGeoN * wiDotShN < 0 && m_strictNormals)
                     break;
 
-                const BSDF *bsdf = its.getBSDF(ray);
+                const BSDF *bsdf = its.getBSDF();
 
                 Vector dTreeVoxelSize;
                 DTreeWrapper* dTree = nullptr;

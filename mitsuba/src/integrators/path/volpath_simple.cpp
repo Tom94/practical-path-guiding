@@ -201,7 +201,7 @@ public:
 				/*                     Direct illumination sampling                     */
 				/* ==================================================================== */
 
-				const BSDF *bsdf = its.getBSDF(ray);
+				const BSDF *bsdf = its.getBSDF();
 
 				/* Estimate the direct illumination if this is requested */
 				if (rRec.type & RadianceQueryRecord::EDirectSurfaceRadiance &&
