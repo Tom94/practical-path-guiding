@@ -137,6 +137,10 @@
       two sampling methods. This factor controls how often the BSDF is sampled
       vs. how often the guiding distribution is sampled.
     </param>
+    <param name="learnBsdfSamplingFraction" readableName="Learn BSDF Sampling Fraction" type="boolean" default="false" importance="1">
+      Whether or not to automatically learn the bsdfSamplingFraction (disables
+      m_bsdfSamplingFraction) using gradient descent.
+    </param>
     <param name="nee" readableName="Next Event Estimation" type="string" default="never" importance="1">
       How to perform next event estimation (NEE). The following values are valid:
       "never": Never performs NEE.

@@ -2,7 +2,18 @@
 
 This repository contains the authors' implementation of the guided unidirectional path tracer of the research paper ["Practical Path Guiding for Efficient Light-Transport Simulation" [Müller et al. 2017]](https://tom94.net). It also includes a visualization tool for the SD-Trees learned by the guided path tracer. The guided path tracer has been implemented in the [Mitsuba Physically Based Renderer](http://mitsuba-renderer.org) and the visualization tool with the [nanogui](https://github.com/wjakob/nanogui) library.
 
-#### No Support for Participating Media
+## Extensions
+
+This repository contains extensions beyond what was presented in [Müller et al. 2017].
+The extensions are
+- filtered SD-tree splatting for increased robustness,
+- support for next event estimation (NEE) in addition to path guiding, and
+- automatic learning of the BSDF / SD-tree sampling ratio via gradient descent based on the theory of [Neural Importance Sampling [Müller et al. 2018]](https://tom94.net).
+
+Since the above extensions significantly improve the algorithm, they are *enabled* by default.
+Please consult the bundled KITCHEN-OLD scene or the Mitsuba GUI to see the parameters that need to be disabled for reproducing the results of Müller et al. [2017].
+
+### No Support for Participating Media
 
 The guided path tracer in this repository was not designed to handle participating media, although it could potentially be extended with little effort. In its current state, scenes containing participating media might converge slowly or not to the correct result at all.
 
@@ -26,6 +37,10 @@ The POOL scene—created by Ondřej Karlík—is bundled with the [public source
   - Disabled automatic progress bookkeeping.
 - `GuidedPathTracer` (*guided_path.cpp*)
   - Added the guided path tracer implementing [Müller et al. 2017].
+  - Additionally, implemented the following extensions that are not implemented in the paper:
+    - Filtered SD-tree splatting.
+    - Support for guiding with next event estimation (NEE) enabled.
+    - Automatic learning of the BSDF / SD-tree sampling ratio via gradient descent based on the theory of [Neural Importance Sampling [Müller et al. 2018]](https://tom94.net).
 - `ImageBlock` (*imageblock.h*)
   - Allowed querying the reconstruction filter.
 - `MainWindow` (*mainwindow.cpp*)

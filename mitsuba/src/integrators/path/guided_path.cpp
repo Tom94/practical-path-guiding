@@ -61,6 +61,77 @@ static void addToAtomicFloat(std::atomic<Float>& var, Float val) {
     while (!var.compare_exchange_weak(current, current + val));
 }
 
+inline Float logistic(Float x) {
+    return 1 / (1 + std::exp(-x));
+}
+
+// Implements the stochastic-gradient-based Adam optimizer [Kingma and Ba 2014]
+class ThreadSafeAdamOptimizer {
+public:
+    ThreadSafeAdamOptimizer(Float learningRate, int batchSize = 1, Float epsilon = 1e-08f, Float beta1 = 0.9f, Float beta2 = 0.999f)
+    : m_hparams{learningRate, batchSize, epsilon, beta1, beta2} { }
+
+    ThreadSafeAdamOptimizer& operator=(const ThreadSafeAdamOptimizer& arg) {
+        m_state = arg.m_state;
+        m_hparams = arg.m_hparams;
+        return *this;
+    }
+
+    ThreadSafeAdamOptimizer(const ThreadSafeAdamOptimizer& arg) {
+        *this = arg;
+    }
+
+    void append(Float gradient, Float statisticalWeight) {
+        std::lock_guard<std::mutex> lock{m_mutex};
+
+        m_state.batchGradient += gradient;
+        m_state.batchAccumulation += statisticalWeight;
+
+        if (m_state.batchAccumulation > m_hparams.batchSize) {
+            step(m_state.batchGradient / m_state.batchAccumulation);
+
+            m_state.batchGradient = 0;
+            m_state.batchAccumulation = 0;
+        }
+    }
+
+    void step(Float gradient) {
+        ++m_state.iter;
+
+        Float actualLearningRate = m_hparams.learningRate * std::sqrt(1 - std::pow(m_hparams.beta2, m_state.iter)) / (1 - std::pow(m_hparams.beta1, m_state.iter));
+        m_state.firstMoment = m_hparams.beta1 * m_state.firstMoment + (1 - m_hparams.beta1) * gradient;
+        m_state.secondMoment = m_hparams.beta2 * m_state.secondMoment + (1 - m_hparams.beta2) * gradient * gradient;
+        m_state.variable -= actualLearningRate * m_state.firstMoment / (std::sqrt(m_state.secondMoment) + m_hparams.epsilon);
+
+        m_state.variable = std::min(std::max(m_state.variable, -20.0f), 20.0f);
+    }
+
+    Float variable() const {
+        return m_state.variable;
+    }
+
+private:
+    struct State {
+        int iter = 0;
+        Float firstMoment = 0;
+        Float secondMoment = 0;
+        Float variable = 0;
+
+        Float batchAccumulation = 0;
+        Float batchGradient = 0;
+    } m_state;
+
+    struct Hyperparameters {
+        Float learningRate;
+        int batchSize;
+        Float epsilon;
+        Float beta1;
+        Float beta2;
+    } m_hparams;
+
+    mutable std::mutex m_mutex;
+};
+
 class QuadTreeNode {
 public:
     QuadTreeNode() {
@@ -499,14 +570,27 @@ private:
     int m_maxDepth;
 };
 
+struct DTreeRecord {
+    Vector d;
+    Float radiance, product;
+    Float woPdf, bsdfPdf, dTreePdf;
+    Float statisticalWeight;
+    bool isDelta;
+};
 
 struct DTreeWrapper {
 public:
     DTreeWrapper() {
     }
 
-    void recordRadiance(const Vector& dir, Float radiance, Float statisticalWeight, bool doFilteredSplatting) {
-        building.recordRadiance(dirToCanonical(dir), radiance, statisticalWeight, doFilteredSplatting);
+    void recordRadiance(const DTreeRecord& rec, bool doFilteredSplatting, bool learnBsdfSamplingFraction) {
+        if (!rec.isDelta) {
+            building.recordRadiance(dirToCanonical(rec.d), rec.radiance / rec.woPdf, rec.statisticalWeight, doFilteredSplatting);
+        }
+
+        if (learnBsdfSamplingFraction && rec.product > 0) {
+            optimizeBsdfSamplingFraction(rec, 1);
+        }
     }
 
     void recordMeasurement(Spectrum m) {
@@ -602,6 +686,51 @@ public:
         return building.approxMemoryFootprint() + sampling.approxMemoryFootprint();
     }
 
+    Float bsdfSamplingFraction(Float variable) const {
+        return logistic(bsdfSamplingFractionOptimizer.variable());
+    }
+
+    Float dBsdfSamplingFraction_dVariable(Float variable) const {
+        Float fraction = bsdfSamplingFraction(variable);
+        return fraction * (1 - fraction);
+    }
+
+    Float bsdfSamplingFraction() const {
+        return bsdfSamplingFraction(bsdfSamplingFractionOptimizer.variable());
+    }
+
+    Float dBsdfSamplingFraction_dVariable() const {
+        return dBsdfSamplingFraction_dVariable(bsdfSamplingFractionOptimizer.variable());
+    }
+
+    void optimizeBsdfSamplingFraction(const DTreeRecord& rec, Float ratioPower) {
+        // GRADIENT COMPUTATION
+        Float variable = bsdfSamplingFractionOptimizer.variable();
+
+        Float samplingFraction = bsdfSamplingFraction(variable);
+
+        // Loss gradient w.r.t. sampling fraction
+        Float mixPdf = samplingFraction * rec.bsdfPdf + (1 - samplingFraction) * rec.dTreePdf;
+        Float ratio = std::pow(rec.product / mixPdf, ratioPower);
+        Float dLoss_dSamplingFraction = -ratio / rec.woPdf * (rec.bsdfPdf - rec.dTreePdf);
+
+        // Chain rule to get loss gradient w.r.t. trainable variable
+        Float dLoss_dVariable = dLoss_dSamplingFraction * dBsdfSamplingFraction_dVariable(variable);
+
+        // We want some regularization such that our parameter does not become too big.
+        // We use l2 regularization, resulting in the following linear gradient.
+        Float l2RegGradient = 0.001f * variable * rec.statisticalWeight;
+        // Float l1RegGradient = std::copysign(0.0001f * rec.statisticalWeight, variable);
+
+        Float lossGradient = l2RegGradient + dLoss_dVariable;
+        // if (maxGradient > 0) {
+        //     lossGradient = std::min(lossGradient, maxGradient);
+        // }
+
+        // ADAM GRADIENT DESCENT
+        bsdfSamplingFractionOptimizer.append(lossGradient, rec.statisticalWeight);
+    }
+
     void dump(BlobWriter& blob, const Point& p, const Vector& size) const {
         blob
             << (float)p.x << (float)p.y << (float)p.z
@@ -619,8 +748,9 @@ public:
 private:
     DTree building;
     DTree sampling;
-};
 
+    ThreadSafeAdamOptimizer bsdfSamplingFractionOptimizer{0.01f};
+};
 
 struct STreeNode {
     STreeNode() {
@@ -705,11 +835,11 @@ struct STreeNode {
         return area;
     }
 
-    void recordRadiance(const Point& min1, const Point& max1, Point min2, Vector size2, const Vector& d, Float radiance, Float statisticalWeight, bool doFilteredSplatting, std::vector<STreeNode>& nodes) {
+    void recordRadiance(const Point& min1, const Point& max1, Point min2, Vector size2, const DTreeRecord& rec, bool learnBsdfSamplingFraction, std::vector<STreeNode>& nodes) {
         Float w = computeOverlappingVolume(min1, max1, min2, min2 + size2);
         if (w > 0) {
             if (isLeaf) {
-                dTree.recordRadiance(d, radiance * w, statisticalWeight * w, doFilteredSplatting);
+                dTree.recordRadiance({ rec.d, rec.radiance * w, rec.product * w, rec.woPdf, rec.bsdfPdf, rec.dTreePdf, rec.statisticalWeight * w, rec.isDelta }, true, learnBsdfSamplingFraction);
             } else {
                 size2[axis] /= 2;
                 for (int i = 0; i < 2; ++i) {
@@ -717,7 +847,7 @@ struct STreeNode {
                         min2[axis] += size2[axis];
                     }
 
-                    nodes[children[i]].recordRadiance(min1, max1, min2, size2, d, radiance, statisticalWeight, doFilteredSplatting, nodes);
+                    nodes[children[i]].recordRadiance(min1, max1, min2, size2, rec, learnBsdfSamplingFraction, nodes);
                 }
             }
         }
@@ -817,13 +947,17 @@ public:
         }
     }
 
-    void recordRadiance(const Point& p, const Vector& dTreeVoxelSize, const Vector& d, Float radiance, Float statisticalWeight, bool doFilteredSplatting) {
+    void recordRadiance(const Point& p, const Vector& dTreeVoxelSize, DTreeRecord rec, bool learnBsdfSamplingFraction) {
         Float volume = 1;
         for (int i = 0; i < 3; ++i) {
             volume *= dTreeVoxelSize[i];
         }
 
-        m_nodes[0].recordRadiance(p - dTreeVoxelSize * 0.5f, p + dTreeVoxelSize * 0.5f, m_aabb.min, m_aabb.getExtents(), d, radiance / volume, statisticalWeight / volume, doFilteredSplatting, m_nodes);
+        rec.radiance /= volume;
+        rec.product /= volume;
+        rec.statisticalWeight /= volume;
+
+        m_nodes[0].recordRadiance(p - dTreeVoxelSize * 0.5f, p + dTreeVoxelSize * 0.5f, m_aabb.min, m_aabb.getExtents(), rec, learnBsdfSamplingFraction, m_nodes);
     }
 
     void dump(BlobWriter& blob) const {
@@ -905,9 +1039,10 @@ public:
 
         m_doFilteredSplatting = props.getBoolean("doFilteredSplatting", true);
         m_sdTreeMaxMemory = props.getInteger("sdTreeMaxMemory", -1);
-        m_sTreeThreshold = props.getInteger("sTreeThreshold", 12000);
+        m_sTreeThreshold = props.getInteger("sTreeThreshold", 1024);
         m_dTreeThreshold = props.getFloat("dTreeThreshold", 0.01f);
         m_bsdfSamplingFraction = props.getFloat("bsdfSamplingFraction", 0.5f);
+        m_learnBsdfSamplingFraction = props.getBoolean("learnBsdfSamplingFraction", true);
         m_automaticBudget = props.getBoolean("automaticBudget", true);
         m_sppPerPass = props.getInteger("sppPerPass", 4);
 
@@ -1455,58 +1590,64 @@ public:
         }
     }
 
-    Spectrum sampleMat(const BSDF* bsdf, BSDFSamplingRecord& bRec, Float& pdf, RadianceQueryRecord& rRec, const DTreeWrapper* dTree) const {
+    Spectrum sampleMat(const BSDF* bsdf, BSDFSamplingRecord& bRec, Float& woPdf, Float& bsdfPdf, Float& dTreePdf, Float bsdfSamplingFraction, RadianceQueryRecord& rRec, const DTreeWrapper* dTree) const {
         Point2 sample = rRec.nextSample2D();
 
         auto type = bsdf->getType();
         if (!m_isBuilt || !dTree || (type & BSDF::EDelta) == (type & BSDF::EAll)) {
-            return bsdf->sample(bRec, pdf, sample);
+            return bsdf->sample(bRec, woPdf, sample);
         }
 
         Spectrum result;
-        if (sample.x < m_bsdfSamplingFraction) {
-            sample.x /= m_bsdfSamplingFraction;
-            result = bsdf->sample(bRec, pdf, sample);
+        if (sample.x < bsdfSamplingFraction) {
+            sample.x /= bsdfSamplingFraction;
+            result = bsdf->sample(bRec, woPdf, sample);
             if (result.isZero()) {
+                woPdf = bsdfPdf = dTreePdf = 0;
                 return Spectrum{0.0f};
             }
 
             // If we sampled a delta component, then we have a 0 probability
             // of sampling that direction via guiding, thus we can return early.
             if (bRec.sampledType & BSDF::EDelta) {
-                pdf *= m_bsdfSamplingFraction;
-                return result / m_bsdfSamplingFraction;
+                bsdfPdf = woPdf;
+                dTreePdf = 0;
+                woPdf *= bsdfSamplingFraction;
+                return result / bsdfSamplingFraction;
             }
 
-            result *= pdf;
+            result *= woPdf;
         } else {
-            sample.x = (sample.x - m_bsdfSamplingFraction) / (1 - m_bsdfSamplingFraction);
+            sample.x = (sample.x - bsdfSamplingFraction) / (1 - bsdfSamplingFraction);
             bRec.wo = bRec.its.toLocal(dTree->sampleDirection(sample));
             result = bsdf->eval(bRec);
         }
 
-        pdf = pdfMat(bsdf, bRec, dTree);
-        if (pdf == 0) {
+        pdfMat(woPdf, bsdfPdf, dTreePdf, bsdfSamplingFraction, bsdf, bRec, dTree);
+        if (woPdf == 0) {
             return Spectrum{0.0f};
         }
 
-        return result / pdf;
+        return result / woPdf;
     }
 
-    Float pdfMat(const BSDF* bsdf, const BSDFSamplingRecord& bRec, const DTreeWrapper* dTree) const {
+    void pdfMat(Float& woPdf, Float& bsdfPdf, Float& dTreePdf, Float bsdfSamplingFraction, const BSDF* bsdf, const BSDFSamplingRecord& bRec, const DTreeWrapper* dTree) const {
+        dTreePdf = 0;
+
         auto type = bsdf->getType();
         if (!m_isBuilt || !dTree || (type & BSDF::EDelta) == (type & BSDF::EAll)) {
-            return bsdf->pdf(bRec);
+            woPdf = bsdfPdf = bsdf->pdf(bRec);
+            return;
         }
 
-        const Float bsdfPdf = bsdf->pdf(bRec);
-        if (bsdfPdf <= 0 || !std::isfinite(bsdfPdf)) {
-            return 0;
+        bsdfPdf = bsdf->pdf(bRec);
+        if (!std::isfinite(bsdfPdf)) {
+            woPdf = 0;
+            return;
         }
 
-        return
-            m_bsdfSamplingFraction * bsdfPdf +
-            (1 - m_bsdfSamplingFraction) * dTree->samplePdf(bRec.its.toWorld(bRec.wo));
+        dTreePdf = dTree->samplePdf(bRec.its.toWorld(bRec.wo));
+        woPdf = bsdfSamplingFraction * bsdfPdf + (1 - bsdfSamplingFraction) * dTreePdf;
     }
 
     Spectrum Li(const RayDifferential &r, RadianceQueryRecord &rRec) const {
@@ -1514,32 +1655,34 @@ public:
             DTreeWrapper* dTree;
             Vector dTreeVoxelSize;
             Ray ray;
+
             Spectrum throughput;
+            Spectrum bsdfVal;
+
             Spectrum radiance;
 
-            void record(Spectrum& r) {
-                // Only consider vertices with a throughput larger than epsilon to prevent
-                // fireflies with magnitudes that can't be handled. This is fine, because
-                // vertices with such low throughput (except for in contrived scenes)
-                // don't contribute anything meaningful to the final image.
-                if (throughput[0] > Epsilon) radiance[0] += r[0] / throughput[0];
-                if (throughput[1] > Epsilon) radiance[1] += r[1] / throughput[1];
-                if (throughput[2] > Epsilon) radiance[2] += r[2] / throughput[2];
+            Float woPdf, bsdfPdf, dTreePdf;
+            bool isDelta;
+
+            void record(const Spectrum& r) {
+                radiance += r;
             }
 
-            void recordMeasurement(Spectrum& r) {
+            void recordMeasurement(const Spectrum& r) {
                 dTree->recordMeasurement(r);
             }
 
-            void commit(STree& sdTree, Float statisticalWeight, bool doFilteredSplatting) {
-                if (radiance.isZero()) {
-                    return;
-                }
+            void commit(STree& sdTree, Float statisticalWeight, bool doFilteredSplatting, bool learnBsdfSamplingFraction) {
+                if (throughput[0] * woPdf > Epsilon) radiance[0] /= throughput[0];
+                if (throughput[1] * woPdf > Epsilon) radiance[1] /= throughput[1];
+                if (throughput[2] * woPdf > Epsilon) radiance[2] /= throughput[2];
+                Spectrum product = radiance * bsdfVal;
 
+                DTreeRecord rec{ ray.d, radiance.average(), product.average(), woPdf, bsdfPdf, dTreePdf, statisticalWeight, isDelta };
                 if (doFilteredSplatting) {
-                    sdTree.recordRadiance(ray.o, dTreeVoxelSize, ray.d, radiance.average(), statisticalWeight, true);
+                    sdTree.recordRadiance(ray.o, dTreeVoxelSize, rec, learnBsdfSamplingFraction);
                 } else {
-                    dTree->recordRadiance(ray.d, radiance.average(), statisticalWeight, false);
+                    dTree->recordRadiance(rec, false, learnBsdfSamplingFraction);
                 }
             }
         };
@@ -1720,14 +1863,19 @@ public:
                     dTree = m_sdTree->dTreeWrapper(its.p, dTreeVoxelSize);
                 }
 
+                Float bsdfSamplingFraction = m_bsdfSamplingFraction;
+                if (dTree && m_learnBsdfSamplingFraction) {
+                    bsdfSamplingFraction = dTree->bsdfSamplingFraction();
+                }
+
                 /* ==================================================================== */
                 /*                            BSDF sampling                             */
                 /* ==================================================================== */
 
                 /* Sample BSDF * cos(theta) */
                 BSDFSamplingRecord bRec(its, rRec.sampler, ERadiance);
-                Float bsdfPdf;
-                Spectrum bsdfWeight = sampleMat(bsdf, bRec, bsdfPdf, rRec, dTree);
+                Float woPdf, bsdfPdf, dTreePdf;
+                Spectrum bsdfWeight = sampleMat(bsdf, bRec, woPdf, bsdfPdf, dTreePdf, bsdfSamplingFraction, rRec, dTree);
 
                 /* ==================================================================== */
                 /*                          Luminaire sampling                          */
@@ -1746,25 +1894,27 @@ public:
                         rRec.nextSample2D(), rRec.sampler);
 
                     if (!value.isZero()) {
-
                         BSDFSamplingRecord bRec(its, its.toLocal(dRec.d));
 
                         Float woDotGeoN = dot(its.geoFrame.n, dRec.d);
 
                         /* Prevent light leaks due to the use of shading normals */
                         if (!m_strictNormals || woDotGeoN * Frame::cosTheta(bRec.wo) > 0) {
-
                             /* Evaluate BSDF * cos(theta) */
                             const Spectrum bsdfVal = bsdf->eval(bRec);
 
                             /* Calculate prob. of having generated that direction using BSDF sampling */
                             const Emitter *emitter = static_cast<const Emitter *>(dRec.object);
-                            Float bsdfPdf = (emitter->isOnSurface()
-                                && dRec.measure == ESolidAngle)
-                                ? pdfMat(bsdf, bRec, dTree) : (Float) 0.0f;
+                            Float woPdf = 0, bsdfPdf = 0, dTreePdf = 0;
+                            if (emitter->isOnSurface() && dRec.measure == ESolidAngle) {
+                                pdfMat(woPdf, bsdfPdf, dTreePdf, bsdfSamplingFraction, bsdf, bRec, dTree);
+                            }
 
                             /* Weight using the power heuristic */
-                            const Float weight = miWeight(dRec.pdf, bsdfPdf);
+                            const Float weight = miWeight(dRec.pdf, woPdf);
+
+                            value *= bsdfVal;
+                            Spectrum L = throughput * value * weight;
 
                             if (!m_isFinalIter && m_nee != EAlways) {
                                 if (dTree) {
@@ -1772,16 +1922,20 @@ public:
                                         dTree,
                                         dTreeVoxelSize,
                                         Ray(its.p, dRec.d, 0),
-                                        Spectrum{0.0f},
-                                        value * weight,
+                                        throughput * bsdfVal * dRec.pdf,
+                                        bsdfVal,
+                                        L,
+                                        dRec.pdf,
+                                        bsdfPdf,
+                                        dTreePdf,
+                                        false,
                                     };
 
-                                    v.commit(*m_sdTree, 0, m_doFilteredSplatting);
+                                    v.commit(*m_sdTree, 0, m_doFilteredSplatting, m_learnBsdfSamplingFraction);
                                 }
                             }
 
-                            value *= bsdfVal;
-                            recordRadiance(throughput * value * weight);
+                            recordRadiance(L);
                         }
                     }
                 }
@@ -1825,28 +1979,32 @@ public:
                 /* If a luminaire was hit, estimate the local illumination and
                 weight using the power heuristic */
                 if (rRec.type & RadianceQueryRecord::EDirectSurfaceRadiance) {
-                    const Float emitterPdf = (m_doNee && !(bRec.sampledType & BSDF::EDelta) && !value.isZero()) ?
-                        scene->pdfEmitterDirect(dRec) : 0;
+                    bool isDelta = bRec.sampledType & BSDF::EDelta;
+                    const Float emitterPdf = (m_doNee && !isDelta && !value.isZero()) ? scene->pdfEmitterDirect(dRec) : 0;
 
-                    const Float weight = miWeight(bsdfPdf, emitterPdf);
-                    if (!value.isZero()) {
-                        recordRadiance(throughput * value * weight);
+                    const Float weight = miWeight(woPdf, emitterPdf);
+                    Spectrum L = throughput * value * weight;
+                    if (!L.isZero()) {
+                        recordRadiance(L);
                     }
 
-                    if (!(bRec.sampledType & BSDF::EDelta) && dTree && depth < NUM_VERTICES && !m_isFinalIter) {
+                    if ((!isDelta || m_learnBsdfSamplingFraction) && dTree && depth < NUM_VERTICES && !m_isFinalIter) {
                         if (depth == 0 && m_isBuilt) {
                             measurementEstimate = dTree->measurementEstimate();
                         }
 
-                        Float factor = 1 / bsdfPdf;
-                        Spectrum radiance = m_nee == EAlways ? Spectrum{0.0f} : (value * factor * weight);
-                        if (factor > 0) {
+                        if (1 / woPdf > 0) {
                             vertices[depth] = Vertex{
                                 dTree,
                                 dTreeVoxelSize,
                                 ray,
-                                throughput / factor,
-                                radiance,
+                                throughput,
+                                bsdfWeight,
+                                m_nee == EAlways ? Spectrum{0.0f} : L,
+                                woPdf,
+                                bsdfPdf,
+                                dTreePdf,
+                                isDelta,
                             };
 
                             ++depth;
@@ -1907,7 +2065,7 @@ public:
         if (depth > 0) {
             vertices[0].recordMeasurement(Li);
             for (int i = 0; i < depth; ++i) {
-                vertices[i].commit(*m_sdTree, 1, m_doFilteredSplatting);
+                vertices[i].commit(*m_sdTree, 1, m_doFilteredSplatting, m_learnBsdfSamplingFraction);
             }
         }
 
@@ -2115,6 +2273,13 @@ private:
         Default = 0.5 (50%)
     */
     Float m_bsdfSamplingFraction;
+
+    /**
+        Whether or not to automatically learn the bsdfSamplingFraction (disables
+        m_bsdfSamplingFraction) using gradient descent.
+        Default = false
+    */
+    bool m_learnBsdfSamplingFraction;
 
     /**
         Whether to dump a binary representation of the SD-Tree to disk after every

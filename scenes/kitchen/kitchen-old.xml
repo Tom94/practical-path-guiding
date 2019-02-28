@@ -14,6 +14,13 @@
 		<!-- Parameters for our guided path tracer -->
 		<string name="budgetType" value="spp"/>
 		<float name="budget" value="2400"/>
+
+		<!--
+			Old parameters to reproduce results of Müller et al. [2017]
+		-->
+		<boolean name="learnBsdfSamplingFraction" value="false"/>
+		<boolean name="doFilteredSplatting" value="false"/>
+		<integer name="sTreeThreshold" value="12000"/>
 	</integrator>
 
 	<sensor type="perspective" >
