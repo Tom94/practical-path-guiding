@@ -66,24 +66,23 @@ inline Float logistic(Float x) {
 }
 
 // Implements the stochastic-gradient-based Adam optimizer [Kingma and Ba 2014]
-class ThreadSafeAdamOptimizer {
+class AdamOptimizer {
 public:
-    ThreadSafeAdamOptimizer(Float learningRate, int batchSize = 1, Float epsilon = 1e-08f, Float beta1 = 0.9f, Float beta2 = 0.999f)
-    : m_hparams{learningRate, batchSize, epsilon, beta1, beta2} { }
+    AdamOptimizer(Float learningRate, int batchSize = 1, Float epsilon = 1e-08f, Float beta1 = 0.9f, Float beta2 = 0.999f) {
+		m_hparams = { learningRate, batchSize, epsilon, beta1, beta2 };
+	}
 
-    ThreadSafeAdamOptimizer& operator=(const ThreadSafeAdamOptimizer& arg) {
+    AdamOptimizer& operator=(const AdamOptimizer& arg) {
         m_state = arg.m_state;
         m_hparams = arg.m_hparams;
         return *this;
     }
 
-    ThreadSafeAdamOptimizer(const ThreadSafeAdamOptimizer& arg) {
+    AdamOptimizer(const AdamOptimizer& arg) {
         *this = arg;
     }
 
     void append(Float gradient, Float statisticalWeight) {
-        std::lock_guard<std::mutex> lock{m_mutex};
-
         m_state.batchGradient += gradient;
         m_state.batchAccumulation += statisticalWeight;
 
@@ -128,8 +127,6 @@ private:
         Float beta1;
         Float beta2;
     } m_hparams;
-
-    mutable std::mutex m_mutex;
 };
 
 class QuadTreeNode {
@@ -704,6 +701,8 @@ public:
     }
 
     void optimizeBsdfSamplingFraction(const DTreeRecord& rec, Float ratioPower) {
+        m_spinLock.lock();
+
         // GRADIENT COMPUTATION
         Float variable = bsdfSamplingFractionOptimizer.variable();
 
@@ -729,6 +728,8 @@ public:
 
         // ADAM GRADIENT DESCENT
         bsdfSamplingFractionOptimizer.append(lossGradient, rec.statisticalWeight);
+
+        m_spinLock.unlock();
     }
 
     void dump(BlobWriter& blob, const Point& p, const Vector& size) const {
@@ -749,7 +750,27 @@ private:
     DTree building;
     DTree sampling;
 
-    ThreadSafeAdamOptimizer bsdfSamplingFractionOptimizer{0.01f};
+    AdamOptimizer bsdfSamplingFractionOptimizer{0.01f};
+
+    class SpinLock {
+    public:
+        SpinLock() {
+            m_mutex.clear(std::memory_order_release);
+        }
+
+        SpinLock(const SpinLock& other) { m_mutex.clear(std::memory_order_release); }
+        SpinLock& operator=(const SpinLock& other) { return *this; }
+
+        void lock() {
+            while (m_mutex.test_and_set(std::memory_order_acquire)) { }
+        }
+
+        void unlock() {
+            m_mutex.clear(std::memory_order_release);
+        }
+    private:
+        std::atomic_flag m_mutex;
+    } m_spinLock;
 };
 
 struct STreeNode {
