@@ -410,7 +410,9 @@ public:
         }
 
         Point2 res = m_nodes[0].sample(sample, m_nodes);
-        SAssert(res.x >= 0 && res.x <= 1 && res.y >= 0 && res.y <= 1);
+
+        res.x = math::clamp(res.x, 0.0f, 1.0f);
+        res.y = math::clamp(res.y, 0.0f, 1.0f);
 
         return res;
     }
