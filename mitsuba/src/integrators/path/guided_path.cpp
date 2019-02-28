@@ -1190,7 +1190,16 @@ public:
             m_doNee = doNeeWithSpp(sppRendered);
 
             int remainingPasses = nPasses - m_passesRendered;
-            const int passesThisIteration = std::min(remainingPasses, 1 << m_iter);
+            int passesThisIteration = std::min(remainingPasses, 1 << m_iter);
+
+            // If the next iteration does not manage to double the number of passes once more
+            // then it would be unwise to throw away the current iteration. Instead, extend
+            // the current iteration to the end.
+            // This condition can also be interpreted as: the last iteration must always use
+            // at _least_ half the total sample budget.
+            if (remainingPasses - passesThisIteration < 2 * passesThisIteration) {
+                passesThisIteration = remainingPasses;
+            }
 
             Log(EInfo, "ITERATION %d, %d passes", m_iter, passesThisIteration);
             
