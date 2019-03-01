@@ -278,15 +278,15 @@ public:
     }
 
     Float computeOverlappingArea(const Point2& min1, const Point2& max1, const Point2& min2, const Point2& max2) {
-        float area = 1;
+        Float lengths[2];
         for (int i = 0; i < 2; ++i) {
-            area *= std::max(std::min(max1[i], max2[i]) - std::max(min1[i], min2[i]), 0.0f);
+            lengths[i] = std::max(std::min(max1[i], max2[i]) - std::max(min1[i], min2[i]), 0.0f);
         }
-        return area;
+        return lengths[0] * lengths[1];
     }
 
-    void record(const Point2& origin, float size, Point2 nodeOrigin, float nodeSize, float value, std::vector<QuadTreeNode>& nodes) {
-        float childSize = nodeSize / 2;
+    void record(const Point2& origin, Float size, Point2 nodeOrigin, Float nodeSize, Float value, std::vector<QuadTreeNode>& nodes) {
+        Float childSize = nodeSize / 2;
         for (int i = 0; i < 4; ++i) {
             Point2 childOrigin = nodeOrigin;
             if (i & 1) {
@@ -296,7 +296,7 @@ public:
                 childOrigin[1] += childSize;
             }
 
-            float w = computeOverlappingArea(origin, origin + Point2(size), childOrigin, childOrigin + Point2(childSize));
+            Float w = computeOverlappingArea(origin, origin + Point2(size), childOrigin, childOrigin + Point2(childSize));
             if (w > 0.0f) {
                 if (isLeaf(i)) {
                     addToAtomicFloat(m_mean[i], value * w);
@@ -851,11 +851,11 @@ struct STreeNode {
     }
 
     Float computeOverlappingVolume(const Point& min1, const Point& max1, const Point& min2, const Point& max2) {
-        float area = 1;
+        Float lengths[3];
         for (int i = 0; i < 3; ++i) {
-            area *= std::max(std::min(max1[i], max2[i]) - std::max(min1[i], min2[i]), 0.0f);
+            lengths[i] = std::max(std::min(max1[i], max2[i]) - std::max(min1[i], min2[i]), 0.0f);
         }
-        return area;
+        return lengths[0] * lengths[1] * lengths[2];
     }
 
     void recordRadiance(const Point& min1, const Point& max1, Point min2, Vector size2, const DTreeRecord& rec, bool learnBsdfSamplingFraction, std::vector<STreeNode>& nodes) {
@@ -2089,7 +2089,7 @@ public:
         avgPathLength.incrementBase();
         avgPathLength += rRec.depth;
 
-        if (depth > 0) {
+        if (depth > 0 && !m_isFinalIter) {
             vertices[0].recordMeasurement(Li);
             for (int i = 0; i < depth; ++i) {
                 vertices[i].commit(*m_sdTree, 1, m_doFilteredSplatting, m_learnBsdfSamplingFraction);
