@@ -685,21 +685,17 @@ public:
         return building.approxMemoryFootprint() + sampling.approxMemoryFootprint();
     }
 
-    Float bsdfSamplingFraction(Float variable) const {
-        return logistic(bsdfSamplingFractionOptimizer.variable());
+    inline Float bsdfSamplingFraction(Float variable) const {
+        return logistic(variable);
     }
 
-    Float dBsdfSamplingFraction_dVariable(Float variable) const {
+    inline Float dBsdfSamplingFraction_dVariable(Float variable) const {
         Float fraction = bsdfSamplingFraction(variable);
         return fraction * (1 - fraction);
     }
 
-    Float bsdfSamplingFraction() const {
+    inline Float bsdfSamplingFraction() const {
         return bsdfSamplingFraction(bsdfSamplingFractionOptimizer.variable());
-    }
-
-    Float dBsdfSamplingFraction_dVariable() const {
-        return dBsdfSamplingFraction_dVariable(bsdfSamplingFractionOptimizer.variable());
     }
 
     void optimizeBsdfSamplingFraction(const DTreeRecord& rec, Float ratioPower) {
@@ -1067,7 +1063,7 @@ public:
         m_bsdfSamplingFraction = props.getFloat("bsdfSamplingFraction", 0.5f);
         m_learnBsdfSamplingFraction = props.getBoolean("learnBsdfSamplingFraction", true);
         m_automaticBudget = props.getBoolean("automaticBudget", true);
-        m_sppPerPass = props.getInteger("sppPerPass", 4);
+        m_sppPerPass = props.getInteger("sppPerPass", 1);
 
         m_budgetStr = props.getString("budgetType", "seconds");
         if (m_budgetStr == "spp") {
@@ -1618,7 +1614,10 @@ public:
 
         auto type = bsdf->getType();
         if (!m_isBuilt || !dTree || (type & BSDF::EDelta) == (type & BSDF::EAll)) {
-            return bsdf->sample(bRec, woPdf, sample);
+            auto result = bsdf->sample(bRec, bsdfPdf, sample);
+            woPdf = bsdfPdf;
+            dTreePdf = 0;
+            return result;
         }
 
         Spectrum result;
@@ -1958,7 +1957,7 @@ public:
                                         false,
                                     };
 
-                                    v.commit(*m_sdTree, 0, m_doFilteredSplatting, m_learnBsdfSamplingFraction);
+                                    v.commit(*m_sdTree, 0, m_doFilteredSplatting, m_learnBsdfSamplingFraction && m_isBuilt);
                                 }
                             }
 
@@ -2092,7 +2091,7 @@ public:
         if (depth > 0 && !m_isFinalIter) {
             vertices[0].recordMeasurement(Li);
             for (int i = 0; i < depth; ++i) {
-                vertices[i].commit(*m_sdTree, 1, m_doFilteredSplatting, m_learnBsdfSamplingFraction);
+                vertices[i].commit(*m_sdTree, 1, m_doFilteredSplatting, m_learnBsdfSamplingFraction && m_isBuilt);
             }
         }
 
