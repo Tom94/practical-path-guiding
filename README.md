@@ -27,7 +27,7 @@ Each bundled scene comes with two XML files: *scene.xml* without the above impro
 
 ## Example Renders
 
-| Unidirectional path tracing (no NEE) | + Müller et al. 2017 | + aforementioned improvements |
+| Unidir. path tracing (no NEE) | + Müller et al. 2017 | + aforementioned improvements |
 |:---:|:---:|:---:|
 | ![unidir](resources/glossy-kitchen-path.png) | ![unidir](resources/glossy-kitchen.png) | ![unidir](resources/glossy-kitchen-improved.png) |
 
