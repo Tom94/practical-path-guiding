@@ -91,6 +91,15 @@ template <typename T> struct TAABB {
 		}
 	}
 
+	/// Clip point to lie within bounding box.
+	inline PointType clip(const PointType &p) const {
+		PointType result = p;
+		for (int i=0; i<PointType::dim; ++i) {
+			result[i] = std::min(std::max(result[i], min[i]), max[i]);
+		}
+		return result;
+	}
+
 	/**
 	 * \brief Mark the bounding box as invalid.
 	 *

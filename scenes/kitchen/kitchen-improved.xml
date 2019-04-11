@@ -2,13 +2,14 @@
 
 <scene version="0.5.0" >
 	<integrator type="guided_path">
+		<boolean name="strictNormals" value="true"/>
+
 		<!-- Parameters for the guided path tracer by Vorba et al. [2014] -->
 		<!--<integer name="maxDepth" value="40"/>
 		<integer name="nImportons" value="300000"/>
 		<integer name="nPhotons" value="300000"/>
 		<integer name="passes" value="30"/>
 		<boolean name="showVisualization" value="false"/>
-		<boolean name="strictNormals" value="true"/>
 		<boolean name="useEnvSampler" value="true"/>-->
 
 		<!-- Parameters for our guided path tracer -->
@@ -16,11 +17,15 @@
 		<float name="budget" value="2400"/>
 
 		<!--
-			Old parameters to reproduce results of Müller et al. [2017]
+			The following parameters enable all improvements that were added
+			to this codebase after the publication of Mueller et al. [2017].
+			See README.md for additional information.
 		-->
-		<boolean name="learnBsdfSamplingFraction" value="false"/>
-		<boolean name="doFilteredSplatting" value="false"/>
-		<integer name="sTreeThreshold" value="12000"/>
+		<string name="bsdfSamplingFractionLoss" value="kl"/>
+		<string name="spatialFilter" value="stochastic"/>
+		<string name="directionalFilter" value="box"/>
+		<integer name="sTreeThreshold" value="4000"/>
+		<integer name="sppPerPass" value="1"/>
 	</integrator>
 
 	<sensor type="perspective" >
@@ -29,7 +34,7 @@
 			<matrix value="-0.89874 -0.0182716 -0.4381 1.211 0 0.999131 -0.0416703 1.80475 0.438481 -0.0374507 -0.89796 3.85239 0 0 0 1"/>
 		</transform>
 		<sampler type="independent" >
-			<integer name="sampleCount" value="64" />
+			<integer name="sampleCount" value="2400" />
 		</sampler>
 		<film type="hdrfilm" >
 			<integer name="width" value="700" />

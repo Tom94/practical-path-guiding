@@ -2,16 +2,24 @@
 
 This repository contains the authors' implementation of the guided unidirectional path tracer of the research paper ["Practical Path Guiding for Efficient Light-Transport Simulation" [Müller et al. 2017]](https://tom94.net). It also includes a visualization tool for the SD-Trees learned by the guided path tracer. The guided path tracer has been implemented in the [Mitsuba Physically Based Renderer](http://mitsuba-renderer.org) and the visualization tool with the [nanogui](https://github.com/wjakob/nanogui) library.
 
-## Extensions
+## Improvements over the Paper
 
-This repository contains extensions beyond what was presented in [Müller et al. 2017].
-The extensions are
-- filtered SD-tree splatting for increased robustness,
-- support for next event estimation (NEE) in addition to path guiding, and
+This repository contains improvements over what was presented in the paper of Müller et al. [2017].
+The improvements are
+- filtered SD-tree splatting for increased robustness, and
 - automatic learning of the BSDF / SD-tree sampling ratio via gradient descent based on the theory of [Neural Importance Sampling [Müller et al. 2018]](https://tom94.net).
 
-Since the above extensions significantly improve the algorithm, they are *enabled* by default.
-Please consult the bundled KITCHEN-OLD scene or the Mitsuba GUI to see the parameters that need to be disabled for reproducing the results of Müller et al. [2017].
+Since the above extensions significantly improve the algorithm, they are *disabled* by default for reproducibility of the paper's results.
+To get the optimal results *with* the improvements, simply add the following parameters to the integrator in the scene XML file
+```xml
+<boolean name="learnBsdfSamplingFraction" value="true"/>
+<string name="spatialFilter" value="stochastic"/>
+<string name="directionalFilter" value="box"/>
+<integer name="sTreeThreshold" value="4000"/>
+<integer name="sppPerPass" value="1"/>
+```
+
+Each bundled scene comes with two XML files: *scene.xml* without the above improvements, and *scene-improved.xml* with the above improvements.
 
 ### No Support for Participating Media
 
@@ -19,11 +27,27 @@ The guided path tracer in this repository was not designed to handle participati
 
 ## Scenes
 
-The KITCHEN scene from the paper is included in this repository. It was originally modeled by [Jay-Artist on Blendswap](http://www.blendswap.com/user/Jay-Artist), converted into a Mitsuba scene by [Benedikt Bitterli](https://benedikt-bitterli.me/resources/), and then slightly modified by us. The scene is covered by the [CC BY 3.0 license](https://creativecommons.org/licenses/by/3.0/).
+The CBOX scene was not shown in the paper but is included in this repository.
+It was downloaded from the [Mitsuba website](http://mitsuba-renderer.org/download.html) and modified such that the light source points towards the ceiling.
+This makes this scene a good test case for indirect diffuse illumination.
 
-The TORUS scene is available for download on the [Mitsuba website](http://mitsuba-renderer.org/download.html). It was created by Olesya Jakob.
+The KITCHEN scene from the paper is included in this repository.
+It was originally modeled by [Jay-Artist on Blendswap](http://www.blendswap.com/user/Jay-Artist), converted into a Mitsuba scene by [Benedikt Bitterli](https://benedikt-bitterli.me/resources/), and then slightly modified by us.
+The scene is covered by the [CC BY 3.0 license](https://creativecommons.org/licenses/by/3.0/).
+The kitchen illustrates the benefit of path guiding under a mix of difficult indirect and direct illumination.
 
 The POOL scene—created by Ondřej Karlík—is bundled with the [public source code of the method by Vorba et al. [2014]](http://cgg.mff.cuni.cz/~jirka/papers/2014/olpm/index.htm).
+The caustics on the floor of the pool are a good showcase of the effectiveness of path guiding under high-frequency illumination.
+
+The SPACESHIP scene was not shown in the paper but is included in this repository.
+It was originally modeled by [thecali on Blendswap](http://www.blendswap.com/user/thecali), converted into a Mitsuba scene by [Benedikt Bitterli](https://benedikt-bitterli.me/resources/), and then slightly modified by us.
+Due to its mix of highly-glossy and diffuse materials, the scene is an excellent test case for learned MIS weights between path guiding and BSDF sampling.
+The scene is [public domain](https://creativecommons.org/publicdomain/zero/1.0/).
+
+The TORUS scene is available for download on the [Mitsuba website](http://mitsuba-renderer.org/download.html).
+It was created by Olesya Jakob.
+The torus, situated inside of a glass cube, gives rise to difficult specular-diffuse-specular light transport that most unbiased algorithms can not efficiently handle.
+
 
 ## Implementation
 
@@ -37,9 +61,8 @@ The POOL scene—created by Ondřej Karlík—is bundled with the [public source
   - Disabled automatic progress bookkeeping.
 - `GuidedPathTracer` (*guided_path.cpp*)
   - Added the guided path tracer implementing [Müller et al. 2017].
-  - Additionally, implemented the following extensions that are not implemented in the paper:
+  - Additionally, implemented the following improvements that are not implemented in the paper:
     - Filtered SD-tree splatting.
-    - Support for guiding with next event estimation (NEE) enabled.
     - Automatic learning of the BSDF / SD-tree sampling ratio via gradient descent based on the theory of [Neural Importance Sampling [Müller et al. 2018]](https://tom94.net).
 - `ImageBlock` (*imageblock.h*)
   - Allowed querying the reconstruction filter.

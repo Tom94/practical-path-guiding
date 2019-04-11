@@ -21,6 +21,17 @@
 		<string name="nee" value="never"/>
 		<string name="budgetType" value="spp"/>
 		<float name="budget" value="127"/>
+
+		<!--
+			The following parameters enable all improvements that were added
+			to this codebase after the publication of Mueller et al. [2017].
+			See README.md for additional information.
+		-->
+		<string name="bsdfSamplingFractionLoss" value="kl"/>
+		<string name="spatialFilter" value="stochastic"/>
+		<string name="directionalFilter" value="box"/>
+		<integer name="sTreeThreshold" value="4000"/>
+		<integer name="sppPerPass" value="1"/>
 	</integrator>
 
 	<sensor type="perspective">

@@ -83,7 +83,7 @@ public:
     }
 
     void append(Float gradient, Float statisticalWeight) {
-        m_state.batchGradient += gradient;
+        m_state.batchGradient += gradient * statisticalWeight;
         m_state.batchAccumulation += statisticalWeight;
 
         if (m_state.batchAccumulation > m_hparams.batchSize) {
@@ -127,6 +127,23 @@ private:
         Float beta1;
         Float beta2;
     } m_hparams;
+};
+
+enum class EBsdfSamplingFractionLoss {
+    ENone,
+    EKL,
+    EChiSquared,
+};
+
+enum class ESpatialFilter {
+    ENearest,
+    EStochasticBox,
+    EBox,
+};
+
+enum class EDirectionalFilter {
+    ENearest,
+    EBox,
 };
 
 class QuadTreeNode {
@@ -225,7 +242,7 @@ public:
         }
     }
 
-    Point2 sample(Point2 sample, const std::vector<QuadTreeNode>& nodes) const {
+    Point2 sample(Sampler* sampler, const std::vector<QuadTreeNode>& nodes) const {
         int index = 0;
 
         Float topLeft = mean(0);
@@ -233,36 +250,41 @@ public:
         Float partial = topLeft + mean(2);
         Float total = partial + topRight + mean(3);
 
-        SAssert(total > 0.0f);
+        // Should only happen when there are numerical instabilities.
+        if (!(total > 0.0f)) {
+            return sampler->next2D();
+        }
 
         Float boundary = partial / total;
         Point2 origin = Point2{0.0f, 0.0f};
 
-        if (sample.x < boundary) {
+        Float sample = sampler->next1D();
+
+        if (sample < boundary) {
             SAssert(partial > 0);
-            sample.x /= boundary;
+            sample /= boundary;
             boundary = topLeft / partial;
         } else {
             partial = total - partial;
             SAssert(partial > 0);
             origin.x = 0.5f;
-            sample.x = (sample.x - boundary) / (1.0f - boundary);
+            sample = (sample - boundary) / (1.0f - boundary);
             boundary = topRight / partial;
             index |= 1 << 0;
         }
 
-        if (sample.y < boundary) {
-            sample.y /= boundary;
+        if (sample < boundary) {
+            sample /= boundary;
         } else {
             origin.y = 0.5f;
-            sample.y = (sample.y - boundary) / (1.0f - boundary);
+            sample = (sample - boundary) / (1.0f - boundary);
             index |= 1 << 1;
         }
 
         if (isLeaf(index)) {
-            return origin + 0.5f * sample;
+            return origin + 0.5f * sampler->next2D();
         } else {
-            return origin + 0.5f * nodes[child(index)].sample(sample, nodes);
+            return origin + 0.5f * nodes[child(index)].sample(sampler, nodes);
         }
     }
 
@@ -334,10 +356,10 @@ private:
 class DTree {
 public:
     DTree() {
-        m_atomic.sum.store(1, std::memory_order_relaxed);
+        m_atomic.sum.store(0, std::memory_order_relaxed);
         m_maxDepth = 0;
         m_nodes.emplace_back();
-        m_nodes.front().setMean(1.0f / 4);
+        m_nodes.front().setMean(0.0f);
     }
 
     const QuadTreeNode& node(size_t i) const {
@@ -352,40 +374,24 @@ public:
         return factor * m_atomic.sum;
     }
 
-    Spectrum getMeasurement() const {
-        return m_atomic.getMeasurement();
-    }
-
-    void recordRadiance(Point2 p, Float radiance, Float statisticalWeight, bool doFilteredSplatting) {
+    void recordRadiance(Point2 p, Float radiance, Float statisticalWeight, EDirectionalFilter directionalFilter) {
         if (std::isfinite(statisticalWeight) && statisticalWeight > 0) {
             addToAtomicFloat(m_atomic.statisticalWeight, statisticalWeight);
-        }
 
-        if (std::isfinite(radiance) && radiance > 0) {
-            if (!doFilteredSplatting) {
-                m_nodes[0].record(p, radiance, m_nodes);
-            } else {
-                int depth = depthAt(p);
-                Float size = std::pow(0.5f, depth);
+            if (std::isfinite(radiance) && radiance > 0) {
+                if (directionalFilter == EDirectionalFilter::ENearest) {
+                    m_nodes[0].record(p, radiance * statisticalWeight, m_nodes);
+                } else {
+                    int depth = depthAt(p);
+                    Float size = std::pow(0.5f, depth);
 
-                Point2 origin = p;
-                origin.x -= size / 2;
-                origin.y -= size / 2;
-                m_nodes[0].record(origin, size, Point2(0.0f), 1.0f, radiance / (size * size), m_nodes);
+                    Point2 origin = p;
+                    origin.x -= size / 2;
+                    origin.y -= size / 2;
+                    m_nodes[0].record(origin, size, Point2(0.0f), 1.0f, radiance * statisticalWeight / (size * size), m_nodes);
+                }
             }
         }
-    }
-
-    void recordMeasurement(const Spectrum& m) {
-        m_atomic.recordMeasurement(m);
-    }
-
-    Float evalRadiance(Point2 p) const {
-        if (m_atomic.statisticalWeight == 0) {
-            return 0;
-        }
-
-        return m_nodes[0].eval(p, m_nodes) / (4 * M_PI * m_atomic.statisticalWeight);
     }
 
     Float evalPdf(Point2 p) const {
@@ -404,12 +410,12 @@ public:
         return m_maxDepth;
     }
 
-    Point2 sampleRadiance(Point2 sample) const {
+    Point2 sampleRadiance(Sampler* sampler) const {
         if (!(mean() > 0)) {
-            return sample;
+            return sampler->next2D();
         }
 
-        Point2 res = m_nodes[0].sample(sample, m_nodes);
+        Point2 res = m_nodes[0].sample(sampler, m_nodes);
 
         res.x = math::clamp(res.x, 0.0f, 1.0f);
         res.y = math::clamp(res.y, 0.0f, 1.0f);
@@ -445,6 +451,8 @@ public:
         std::stack<StackNode> nodeIndices;
         nodeIndices.push({0, 0, &previousDTree, 1});
 
+        const Float total = previousDTree.m_atomic.sum;
+        
         // Create the topology of the new DTree to be the refined version
         // of the previous DTree. Subdivision is recursive if enough energy is there.
         while (!nodeIndices.empty()) {
@@ -455,8 +463,7 @@ public:
 
             for (int i = 0; i < 4; ++i) {
                 const QuadTreeNode& otherNode = sNode.otherDTree->m_nodes[sNode.otherNodeIndex];
-                const Float total = previousDTree.m_atomic.sum;
-                const Float fraction = total > 0 ? (otherNode.mean(i) / total) : 0;
+                const Float fraction = total > 0 ? (otherNode.mean(i) / total) : std::pow(0.25f, sNode.depth);
                 SAssert(fraction <= 1.0f + Epsilon);
 
                 if (sNode.depth < newMaxDepth && fraction > subdivisionThreshold) {
@@ -510,21 +517,11 @@ private:
         Atomic() {
             sum.store(0, std::memory_order_relaxed);
             statisticalWeight.store(0, std::memory_order_relaxed);
-
-            measurementR.store(0, std::memory_order_relaxed);
-            measurementG.store(0, std::memory_order_relaxed);
-            measurementB.store(0, std::memory_order_relaxed);
-            nMeasurementSamples = 0;
         }
 
         void copyFrom(const Atomic& arg) {
             sum.store(arg.sum.load(std::memory_order_relaxed), std::memory_order_relaxed);
             statisticalWeight.store(arg.statisticalWeight.load(std::memory_order_relaxed), std::memory_order_relaxed);
-
-            measurementR.store(arg.measurementR.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            measurementG.store(arg.measurementG.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            measurementB.store(arg.measurementB.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            nMeasurementSamples = arg.nMeasurementSamples.load(std::memory_order_relaxed);
         }
 
         Atomic(const Atomic& arg) {
@@ -538,31 +535,6 @@ private:
 
         std::atomic<Float> sum;
         std::atomic<Float> statisticalWeight;
-
-        void recordMeasurement(const Spectrum& val) {
-            ++nMeasurementSamples;
-            addToAtomicFloat(measurementR, val[0]);
-            addToAtomicFloat(measurementG, val[1]);
-            addToAtomicFloat(measurementB, val[2]);
-        }
-
-        Spectrum getMeasurement() const {
-            size_t n = nMeasurementSamples.load(std::memory_order_relaxed);
-            if (n == 0) {
-                return Spectrum{0.0f};
-            }
-
-            Spectrum result;
-            result[0] = measurementR.load(std::memory_order_relaxed);
-            result[1] = measurementG.load(std::memory_order_relaxed);
-            result[2] = measurementB.load(std::memory_order_relaxed);
-            return result / (Float)n;
-        }
-
-        std::atomic<Float> measurementR;
-        std::atomic<Float> measurementG;
-        std::atomic<Float> measurementB;
-        std::atomic<size_t> nMeasurementSamples;
 
     } m_atomic;
 
@@ -582,22 +554,14 @@ public:
     DTreeWrapper() {
     }
 
-    void recordRadiance(const DTreeRecord& rec, bool doFilteredSplatting, bool learnBsdfSamplingFraction) {
+    void recordRadiance(const DTreeRecord& rec, EDirectionalFilter directionalFilter, EBsdfSamplingFractionLoss bsdfSamplingFractionLoss) {
         if (!rec.isDelta) {
-            building.recordRadiance(dirToCanonical(rec.d), rec.radiance / rec.woPdf, rec.statisticalWeight, doFilteredSplatting);
+            building.recordRadiance(dirToCanonical(rec.d), rec.radiance / rec.woPdf, rec.statisticalWeight, directionalFilter);
         }
 
-        if (learnBsdfSamplingFraction && rec.product > 0) {
-            optimizeBsdfSamplingFraction(rec, 1);
+        if (bsdfSamplingFractionLoss != EBsdfSamplingFractionLoss::ENone && rec.product > 0) {
+            optimizeBsdfSamplingFraction(rec, bsdfSamplingFractionLoss == EBsdfSamplingFractionLoss::EKL ? 1 : 2);
         }
-    }
-
-    void recordMeasurement(Spectrum m) {
-        if (!m.isValid()) {
-            m = Spectrum{0.0f};
-        }
-
-        building.recordMeasurement(m);
     }
 
     static Vector canonicalToDir(Point2 p) {
@@ -624,14 +588,6 @@ public:
         return {(cosTheta + 1) / 2, phi / (2 * M_PI)};
     }
 
-    Float estimateRadiance(Point2 p) const {
-        return sampling.evalRadiance(p);
-    }
-
-    Float estimateRadiance(const Vector& d) const {
-        return estimateRadiance(dirToCanonical(d));
-    }
-
     void build() {
         building.build();
         sampling = building;
@@ -641,8 +597,8 @@ public:
         building.reset(sampling, maxDepth, subdivisionThreshold);
     }
 
-    Vector sampleDirection(Point2 sample) const {
-        return canonicalToDir(sampling.sampleRadiance(sample));
+    Vector sampleDirection(Sampler* sampler) const {
+        return canonicalToDir(sampling.sampleRadiance(sampler));
     }
 
     Float samplePdf(const Vector& dir) const {
@@ -663,10 +619,6 @@ public:
 
     Float meanRadiance() const {
         return sampling.mean();
-    }
-
-    Spectrum measurementEstimate() const {
-        return sampling.getMeasurement();
     }
 
     Float statisticalWeight() const {
@@ -699,11 +651,10 @@ public:
     }
 
     void optimizeBsdfSamplingFraction(const DTreeRecord& rec, Float ratioPower) {
-        m_spinLock.lock();
+        m_lock.lock();
 
         // GRADIENT COMPUTATION
         Float variable = bsdfSamplingFractionOptimizer.variable();
-
         Float samplingFraction = bsdfSamplingFraction(variable);
 
         // Loss gradient w.r.t. sampling fraction
@@ -716,18 +667,14 @@ public:
 
         // We want some regularization such that our parameter does not become too big.
         // We use l2 regularization, resulting in the following linear gradient.
-        Float l2RegGradient = 0.001f * variable * rec.statisticalWeight;
-        // Float l1RegGradient = std::copysign(0.0001f * rec.statisticalWeight, variable);
+        Float l2RegGradient = 0.01f * variable;
 
         Float lossGradient = l2RegGradient + dLoss_dVariable;
-        // if (maxGradient > 0) {
-        //     lossGradient = std::min(lossGradient, maxGradient);
-        // }
 
         // ADAM GRADIENT DESCENT
         bsdfSamplingFractionOptimizer.append(lossGradient, rec.statisticalWeight);
 
-        m_spinLock.unlock();
+        m_lock.unlock();
     }
 
     void dump(BlobWriter& blob, const Point& p, const Vector& size) const {
@@ -768,7 +715,7 @@ private:
         }
     private:
         std::atomic_flag m_mutex;
-    } m_spinLock;
+    } m_lock;
 };
 
 struct STreeNode {
@@ -854,11 +801,11 @@ struct STreeNode {
         return lengths[0] * lengths[1] * lengths[2];
     }
 
-    void recordRadiance(const Point& min1, const Point& max1, Point min2, Vector size2, const DTreeRecord& rec, bool learnBsdfSamplingFraction, std::vector<STreeNode>& nodes) {
+    void recordRadiance(const Point& min1, const Point& max1, Point min2, Vector size2, const DTreeRecord& rec, EDirectionalFilter directionalFilter, EBsdfSamplingFractionLoss bsdfSamplingFractionLoss, std::vector<STreeNode>& nodes) {
         Float w = computeOverlappingVolume(min1, max1, min2, min2 + size2);
         if (w > 0) {
             if (isLeaf) {
-                dTree.recordRadiance({ rec.d, rec.radiance * w, rec.product * w, rec.woPdf, rec.bsdfPdf, rec.dTreePdf, rec.statisticalWeight * w, rec.isDelta }, true, learnBsdfSamplingFraction);
+                dTree.recordRadiance({ rec.d, rec.radiance, rec.product, rec.woPdf, rec.bsdfPdf, rec.dTreePdf, rec.statisticalWeight * w, rec.isDelta }, directionalFilter, bsdfSamplingFractionLoss);
             } else {
                 size2[axis] /= 2;
                 for (int i = 0; i < 2; ++i) {
@@ -866,7 +813,7 @@ struct STreeNode {
                         min2[axis] += size2[axis];
                     }
 
-                    nodes[children[i]].recordRadiance(min1, max1, min2, size2, rec, learnBsdfSamplingFraction, nodes);
+                    nodes[children[i]].recordRadiance(min1, max1, min2, size2, rec, directionalFilter, bsdfSamplingFractionLoss, nodes);
                 }
             }
         }
@@ -966,17 +913,14 @@ public:
         }
     }
 
-    void recordRadiance(const Point& p, const Vector& dTreeVoxelSize, DTreeRecord rec, bool learnBsdfSamplingFraction) {
+    void recordRadiance(const Point& p, const Vector& dTreeVoxelSize, DTreeRecord rec, EDirectionalFilter directionalFilter, EBsdfSamplingFractionLoss bsdfSamplingFractionLoss) {
         Float volume = 1;
         for (int i = 0; i < 3; ++i) {
             volume *= dTreeVoxelSize[i];
         }
 
-        rec.radiance /= volume;
-        rec.product /= volume;
         rec.statisticalWeight /= volume;
-
-        m_nodes[0].recordRadiance(p - dTreeVoxelSize * 0.5f, p + dTreeVoxelSize * 0.5f, m_aabb.min, m_aabb.getExtents(), rec, learnBsdfSamplingFraction, m_nodes);
+        m_nodes[0].recordRadiance(p - dTreeVoxelSize * 0.5f, p + dTreeVoxelSize * 0.5f, m_aabb.min, m_aabb.getExtents(), rec, directionalFilter, bsdfSamplingFractionLoss, m_nodes);
     }
 
     void dump(BlobWriter& blob) const {
@@ -1034,6 +978,10 @@ public:
         //m_nodes.shrink_to_fit();
     }
 
+    const AABB& aabb() const {
+        return m_aabb;
+    }
+
 private:
     std::vector<STreeNode> m_nodes;
     AABB m_aabb;
@@ -1056,14 +1004,43 @@ public:
             Assert(false);
         }
 
-        m_doFilteredSplatting = props.getBoolean("doFilteredSplatting", true);
+        m_spatialFilterStr = props.getString("spatialFilter", "nearest");
+        if (m_spatialFilterStr == "nearest") {
+            m_spatialFilter = ESpatialFilter::ENearest;
+        } else if (m_spatialFilterStr == "stochastic") {
+            m_spatialFilter = ESpatialFilter::EStochasticBox;
+        } else if (m_spatialFilterStr == "box") {
+            m_spatialFilter = ESpatialFilter::EBox;
+        } else {
+            Assert(false);
+        }
+
+        m_directionalFilterStr = props.getString("directionalFilter", "nearest");
+        if (m_directionalFilterStr == "nearest") {
+            m_directionalFilter = EDirectionalFilter::ENearest;
+        } else if (m_directionalFilterStr == "box") {
+            m_directionalFilter = EDirectionalFilter::EBox;
+        } else {
+            Assert(false);
+        }
+
+        m_bsdfSamplingFractionLossStr = props.getString("bsdfSamplingFractionLoss", "none");
+        if (m_bsdfSamplingFractionLossStr == "none") {
+            m_bsdfSamplingFractionLoss = EBsdfSamplingFractionLoss::ENone;
+        } else if (m_bsdfSamplingFractionLossStr == "kl") {
+            m_bsdfSamplingFractionLoss = EBsdfSamplingFractionLoss::EKL;
+        } else if (m_bsdfSamplingFractionLossStr == "chi2") {
+            m_bsdfSamplingFractionLoss = EBsdfSamplingFractionLoss::EChiSquared;
+        } else {
+            Assert(false);
+        }
+
         m_sdTreeMaxMemory = props.getInteger("sdTreeMaxMemory", -1);
-        m_sTreeThreshold = props.getInteger("sTreeThreshold", 1024);
+        m_sTreeThreshold = props.getInteger("sTreeThreshold", 12000);
         m_dTreeThreshold = props.getFloat("dTreeThreshold", 0.01f);
         m_bsdfSamplingFraction = props.getFloat("bsdfSamplingFraction", 0.5f);
-        m_learnBsdfSamplingFraction = props.getBoolean("learnBsdfSamplingFraction", true);
         m_automaticBudget = props.getBoolean("automaticBudget", true);
-        m_sppPerPass = props.getInteger("sppPerPass", 1);
+        m_sppPerPass = props.getInteger("sppPerPass", 4);
 
         m_budgetStr = props.getString("budgetType", "seconds");
         if (m_budgetStr == "spp") {
@@ -1623,7 +1600,7 @@ public:
         Spectrum result;
         if (sample.x < bsdfSamplingFraction) {
             sample.x /= bsdfSamplingFraction;
-            result = bsdf->sample(bRec, woPdf, sample);
+            result = bsdf->sample(bRec, bsdfPdf, sample);
             if (result.isZero()) {
                 woPdf = bsdfPdf = dTreePdf = 0;
                 return Spectrum{0.0f};
@@ -1632,16 +1609,15 @@ public:
             // If we sampled a delta component, then we have a 0 probability
             // of sampling that direction via guiding, thus we can return early.
             if (bRec.sampledType & BSDF::EDelta) {
-                bsdfPdf = woPdf;
                 dTreePdf = 0;
-                woPdf *= bsdfSamplingFraction;
+                woPdf = bsdfPdf * bsdfSamplingFraction;
                 return result / bsdfSamplingFraction;
             }
 
-            result *= woPdf;
+            result *= bsdfPdf;
         } else {
             sample.x = (sample.x - bsdfSamplingFraction) / (1 - bsdfSamplingFraction);
-            bRec.wo = bRec.its.toLocal(dTree->sampleDirection(sample));
+            bRec.wo = bRec.its.toLocal(dTree->sampleDirection(rRec.sampler));
             result = bsdf->eval(bRec);
         }
 
@@ -1690,25 +1666,40 @@ public:
                 radiance += r;
             }
 
-            void recordMeasurement(const Spectrum& r) {
-                dTree->recordMeasurement(r);
-            }
-
-            void commit(STree& sdTree, Float statisticalWeight, bool doFilteredSplatting, bool learnBsdfSamplingFraction) {
-                if (radiance.isZero()) {
+            void commit(STree& sdTree, Float statisticalWeight, ESpatialFilter spatialFilter, EDirectionalFilter directionalFilter, EBsdfSamplingFractionLoss bsdfSamplingFractionLoss, Sampler* sampler) {
+                if (!(woPdf > 0) || !radiance.isValid() || !bsdfVal.isValid()) {
                     return;
                 }
-                
-                if (throughput[0] * woPdf > Epsilon) radiance[0] /= throughput[0];
-                if (throughput[1] * woPdf > Epsilon) radiance[1] /= throughput[1];
-                if (throughput[2] * woPdf > Epsilon) radiance[2] /= throughput[2];
-                Spectrum product = radiance * bsdfVal;
 
-                DTreeRecord rec{ ray.d, radiance.average(), product.average(), woPdf, bsdfPdf, dTreePdf, statisticalWeight, isDelta };
-                if (doFilteredSplatting) {
-                    sdTree.recordRadiance(ray.o, dTreeVoxelSize, rec, learnBsdfSamplingFraction);
-                } else {
-                    dTree->recordRadiance(rec, false, learnBsdfSamplingFraction);
+                Spectrum localRadiance = Spectrum{0.0f};
+                if (throughput[0] * woPdf > Epsilon) localRadiance[0] = radiance[0] / throughput[0];
+                if (throughput[1] * woPdf > Epsilon) localRadiance[1] = radiance[1] / throughput[1];
+                if (throughput[2] * woPdf > Epsilon) localRadiance[2] = radiance[2] / throughput[2];
+                Spectrum product = localRadiance * bsdfVal;
+
+                DTreeRecord rec{ ray.d, localRadiance.average(), product.average(), woPdf, bsdfPdf, dTreePdf, statisticalWeight, isDelta };
+                switch (spatialFilter) {
+                    case ESpatialFilter::ENearest:
+                        dTree->recordRadiance(rec, directionalFilter, bsdfSamplingFractionLoss);
+                        break;
+                    case ESpatialFilter::EStochasticBox:
+                        {
+                            DTreeWrapper* splatDTree = dTree;
+                            Vector offset = {
+                                dTreeVoxelSize.x * (sampler->next1D() - 0.5f),
+                                dTreeVoxelSize.y * (sampler->next1D() - 0.5f),
+                                dTreeVoxelSize.z * (sampler->next1D() - 0.5f),
+                            };
+                            Point origin = sdTree.aabb().clip(ray.o + offset);
+                            splatDTree = sdTree.dTreeWrapper(origin);
+                            if (splatDTree) {
+                                splatDTree->recordRadiance(rec, directionalFilter, bsdfSamplingFractionLoss);
+                            }
+                            break;
+                        }
+                    case ESpatialFilter::EBox:
+                        sdTree.recordRadiance(ray.o, dTreeVoxelSize, rec, directionalFilter, bsdfSamplingFractionLoss);
+                        break;
                 }
             }
         };
@@ -1729,7 +1720,6 @@ public:
         rRec.rayIntersect(ray);
 
         Spectrum throughput(1.0f);
-        Spectrum measurementEstimate;
         bool scattered = false;
 
         int depth = 0;
@@ -1890,7 +1880,7 @@ public:
                 }
 
                 Float bsdfSamplingFraction = m_bsdfSamplingFraction;
-                if (dTree && m_learnBsdfSamplingFraction) {
+                if (dTree && m_bsdfSamplingFractionLoss != EBsdfSamplingFractionLoss::ENone) {
                     bsdfSamplingFraction = dTree->bsdfSamplingFraction();
                 }
 
@@ -1957,7 +1947,7 @@ public:
                                         false,
                                     };
 
-                                    v.commit(*m_sdTree, 0, m_doFilteredSplatting, m_learnBsdfSamplingFraction && m_isBuilt);
+                                    v.commit(*m_sdTree, 0.5f, m_spatialFilter, m_directionalFilter, m_isBuilt ? m_bsdfSamplingFractionLoss : EBsdfSamplingFractionLoss::ENone, rRec.sampler);
                                 }
                             }
 
@@ -2014,19 +2004,15 @@ public:
                         recordRadiance(L);
                     }
 
-                    if ((!isDelta || m_learnBsdfSamplingFraction) && dTree && depth < NUM_VERTICES && !m_isFinalIter) {
-                        if (depth == 0 && m_isBuilt) {
-                            measurementEstimate = dTree->measurementEstimate();
-                        }
-
+                    if ((!isDelta || m_bsdfSamplingFractionLoss != EBsdfSamplingFractionLoss::ENone) && dTree && depth < NUM_VERTICES && !m_isFinalIter) {
                         if (1 / woPdf > 0) {
                             vertices[depth] = Vertex{
                                 dTree,
                                 dTreeVoxelSize,
                                 ray,
                                 throughput,
-                                bsdfWeight,
-                                m_nee == EAlways ? Spectrum{0.0f} : L,
+                                bsdfWeight * woPdf,
+                                (m_nee == EAlways) ? Spectrum{0.0f} : L,
                                 woPdf,
                                 bsdfPdf,
                                 dTreePdf,
@@ -2055,23 +2041,10 @@ public:
                         if (!m_isBuilt) {
                             successProb = throughput.max() * eta * eta;
                         } else {
-                            // Adjoint-based russian roulette based on Vorba and Křivánek [2016]
-                            Spectrum incidentRadiance = Spectrum{ dTree->estimateRadiance(ray.d) };
-
-                            if (measurementEstimate.min() > 0 && incidentRadiance.min() > 0) {
-                                const Float center = (measurementEstimate / incidentRadiance).average();
-                                const Float s = 5;
-                                const Float wMin = 2 * center / (1 + s);
-                                //const Float wMax = wMin * 5; // Useful for splitting
-
-                                const Float tMax = throughput.max();
-                                //const Float tMin = throughput.min(); // Useful for splitting
-
-                                // Splitting is not supported.
-                                if (tMax < wMin) {
-                                    successProb = wMin / tMax;
-                                }
-                            }
+                            // The adjoint russian roulette implementation of Mueller et al. [2017]
+                            // was broken, effectively turning off russian roulette entirely.
+                            // For reproducibility's sake, we therefore removed adjoint russian roulette
+                            // from this codebase rather than fixing it.
                         }
 
                         successProb = std::max(0.1f, std::min(successProb, 0.99f));
@@ -2089,9 +2062,8 @@ public:
         avgPathLength += rRec.depth;
 
         if (depth > 0 && !m_isFinalIter) {
-            vertices[0].recordMeasurement(Li);
             for (int i = 0; i < depth; ++i) {
-                vertices[i].commit(*m_sdTree, 1, m_doFilteredSplatting, m_learnBsdfSamplingFraction && m_isBuilt);
+                vertices[i].commit(*m_sdTree, m_doNee ? 0.5f : 1.0f, m_spatialFilter, m_directionalFilter, m_isBuilt ? m_bsdfSamplingFractionLoss : EBsdfSamplingFractionLoss::ENone, rRec.sampler);
             }
         }
 
@@ -2268,19 +2240,37 @@ private:
     int m_sdTreeMaxMemory;
 
     /**
-        Whether to perform tent filtering when splatting radiance samples into the
-        SDTree. This option improves the quality of the learned distributions at
-        a given sample count at the cost of a small performance impact stemming
-        from splatting into multiple leaves at once.
-        Default = true
+        The spatial filter to use when splatting radiance samples into the SDTree.
+        The following values are valid:
+        - "nearest":    No filtering [Mueller et al. 2017].
+        - "stochastic": Stochastic box filter; improves upon Mueller et al. [2017]
+                        at nearly no computational cost.
+        - "box":        Box filter; improves the quality further at significant
+                        additional computational cost.
+        Default     = "nearest" (for reproducibility)
+        Recommended = "stochastic"
     */
-    bool m_doFilteredSplatting;
+    std::string m_spatialFilterStr;
+    ESpatialFilter m_spatialFilter;
+    
+    /**
+        The directional filter to use when splatting radiance samples into the SDTree.
+        The following values are valid:
+        - "nearest":    No filtering [Mueller et al. 2017].
+        - "box":        Box filter; improves upon Mueller et al. [2017]
+                        at nearly no computational cost.
+        Default     = "nearest" (for reproducibility)
+        Recommended = "box"
+    */
+    std::string m_directionalFilterStr;
+    EDirectionalFilter m_directionalFilter;
 
     /**
         Leaf nodes of the spatial binary tree are subdivided if the number of samples
         they received in the last iteration exceeds c * sqrt(2^k) where c is this value
         and k is the iteration index. The first iteration has k==0.
-        Default = 12000
+        Default     = 12000 (for reproducibility)
+        Recommended = 4000
     */
     int m_sTreeThreshold;
 
@@ -2301,11 +2291,17 @@ private:
     Float m_bsdfSamplingFraction;
 
     /**
-        Whether or not to automatically learn the bsdfSamplingFraction (disables
-        m_bsdfSamplingFraction) using gradient descent.
-        Default = false
+        The loss function to use when learning the bsdfSamplingFraction using gradient
+        descent, following the theory of Neural Importance Sampling [Mueller et al. 2018].
+        The following values are valid:
+        - "none":  No learning (uses the fixed `m_bsdfSamplingFraction`).
+        - "kl":    Optimizes bsdfSamplingFraction w.r.t. the KL divergence.
+        - "chi2":  Optimizes bsdfSamplingFraction w.r.t. the chi-squared divergence.
+        Default     = "none" (for reproducibility)
+        Recommended = "kl"
     */
-    bool m_learnBsdfSamplingFraction;
+    std::string m_bsdfSamplingFractionLossStr;
+    EBsdfSamplingFractionLoss m_bsdfSamplingFractionLoss;
 
     /**
         Whether to dump a binary representation of the SD-Tree to disk after every
