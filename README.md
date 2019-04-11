@@ -101,7 +101,7 @@ To compile the Mitsuba code, please follow the instructions from the [Mitsuba do
 
 We tested our Mitsuba code on
 - Windows (Visual Studio 2013 Win64, custom dependencies via `git clone https://github.com/Tom94/mitsuba-dependencies-windows mitsuba/dependencies`)
-- macOS (High Sierra, custom dependencies via `git clone https://github.com/Tom94/mitsuba-dependencies-macOS mitsuba/dependencies`)
+- macOS (High Sierra / Mojave, custom dependencies via `git clone https://github.com/Tom94/mitsuba-dependencies-macOS mitsuba/dependencies`)
 - Linux (GCC 6.3.1)
 
 ### Visualization Tool
