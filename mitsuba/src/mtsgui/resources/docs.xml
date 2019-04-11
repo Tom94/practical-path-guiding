@@ -111,31 +111,58 @@
     <param name="automaticBudget" readableName="Automatic Budget" type="boolean" default="true" importance="1">
        Whether to automatically stop training and switch to render-only mode at the optimal time.
        If off, iterations are performed until the given budget is exhausted.
+			 Recommended value: true
     </param>
     <param name="dTreeThreshold" readableName="Directional Subdivision Threshold" type="float" default="0.01" importance="1">
       Parameter "rho" from [Müller et al. 2017].
       Leaf nodes of the directional quadtree are subdivided if the fraction
       of energy they carry exceeds this value.
+			Recommended value: 0.01
     </param>
     <param name="sTreeThreshold" readableName="Spatial Subdivision Threshold" type="integer" default="12000" importance="1">
       Parameter "c" from [Müller et al. 2017].
       Leaf nodes of the spatial binary tree are subdivided if the number of samples
       they received in the last iteration exceeds c * sqrt(2^k) where c is this value
       and k is the iteration index. The first iteration has k==0.
+			Recommended value: 4000
     </param>
     <param name="sdTreeMaxMemory" readableName="SD-Tree Maximum Memory Footprint" type="integer" default="-1" importance="1">
       Maximum memory footprint of the SDTree in MB. Stops subdividing once reached. -1 to disable.
+			Recommended value: -1
     </param>
-    <param name="doFilteredSplatting" readableName="Filtered Splatting" type="boolean" default="true" importance="1">
-      Filtered splatting improves the learned distributions at the cost of extra computation.
-      It is especially useful for higher-resolution SDTrees which can be required
-      when illumination is localized.
+    <param name="spatialFilter" readableName="Spatial SD-tree Filter" type="string" default="nearest" importance="1">
+      The spatial filter to use when splatting radiance samples into the SDTree.
+			The following values are valid:
+			"nearest": No filtering [Mueller et al. 2017].
+			"stochastic": Stochastic box filter; improves upon Mueller et al. [2017] at nearly no computational cost.
+			"box": Box filter; improves the quality further at significant additional computational cost.
+			Recommended value: "stochastic"
     </param>
-    <param name="bsdfSamplingFraction" readableName="BSDF Sampling Fraction" type="float" default="0.5" importance="1">
+		<param name="directionalFilter" readableName="Directional SD-tree Filter" type="string" default="nearest" importance="1">
+      The directional filter to use when splatting radiance samples into the SDTree.
+			The following values are valid:
+			"nearest": No filtering [Mueller et al. 2017].
+			"box": Box filter; improves upon Mueller et al. [2017] at nearly no computational cost.
+			Recommended value: "box"
+    </param>
+    <param name="bsdfSamplingFractionLoss" readableName="BSDF Sampling Fraction Loss" type="string" default="none" importance="1">
       When guiding, we perform MIS with the balance heuristic between the guiding
       distribution and the BSDF, combined with probabilistically choosing one of the
-      two sampling methods. This factor controls how often the BSDF is sampled
+      two sampling methods. The ratio of guiding vs. BSDF sampling can be automatically
+			learned based on the theory in Neural Importance Sampling [Mueller et al. 2018].
+			This parameter controls the loss function to use for automatically learning the ratio.
+			The following values are valid:
+      "none": No learning (uses the parameter "Fixed BSDF Sampling Fraction").
+      "kl": Optimizes bsdfSamplingFraction w.r.t. the KL divergence.
+      "chi2": Optimizes bsdfSamplingFraction w.r.t. the chi-squared divergence.
+			Recommended value: "kl"
+    </param>
+    <param name="bsdfSamplingFraction" readableName="Fixed BSDF Sampling Fraction" type="float" default="0.5" importance="1">
+      When guiding, we perform MIS with the balance heuristic between the guiding
+      distribution and the BSDF, combined with probabilistically choosing one of the
+      two sampling methods. When the parameter "BSDF Sampling Fraction Loss" is "none", this factor controls how often the BSDF is sampled
       vs. how often the guiding distribution is sampled.
+			Recommended value: 0.5
     </param>
     <param name="nee" readableName="Next Event Estimation" type="string" default="never" importance="1">
       How to perform next event estimation (NEE). The following values are valid:

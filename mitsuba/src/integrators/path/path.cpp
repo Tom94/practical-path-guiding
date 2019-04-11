@@ -142,7 +142,7 @@ public:
 				break;
 			}
 
-			const BSDF *bsdf = its.getBSDF(ray);
+			const BSDF *bsdf = its.getBSDF();
 
 			/* Possibly include emitted radiance if requested */
 			if (its.isEmitter() && (rRec.type & RadianceQueryRecord::EEmittedRadiance)

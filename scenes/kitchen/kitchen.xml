@@ -2,23 +2,19 @@
 
 <scene version="0.5.0" >
 	<integrator type="guided_path">
+		<boolean name="strictNormals" value="true"/>
+
 		<!-- Parameters for the guided path tracer by Vorba et al. [2014] -->
 		<!--<integer name="maxDepth" value="40"/>
 		<integer name="nImportons" value="300000"/>
 		<integer name="nPhotons" value="300000"/>
 		<integer name="passes" value="30"/>
 		<boolean name="showVisualization" value="false"/>
-		<boolean name="strictNormals" value="true"/>
 		<boolean name="useEnvSampler" value="true"/>-->
 
 		<!-- Parameters for our guided path tracer -->
 		<string name="budgetType" value="spp"/>
 		<float name="budget" value="2400"/>
-		<!--
-			Filtered splatting improves the learned distributions at the cost of computation, but
-			we did not do it in the paper, so we disable it here for reproducibility's sake.
-		-->
-		<boolean name="doFilteredSplatting" value="false"/>
 	</integrator>
 
 	<sensor type="perspective" >
@@ -27,7 +23,7 @@
 			<matrix value="-0.89874 -0.0182716 -0.4381 1.211 0 0.999131 -0.0416703 1.80475 0.438481 -0.0374507 -0.89796 3.85239 0 0 0 1"/>
 		</transform>
 		<sampler type="independent" >
-			<integer name="sampleCount" value="64" />
+			<integer name="sampleCount" value="2400" />
 		</sampler>
 		<film type="hdrfilm" >
 			<integer name="width" value="700" />

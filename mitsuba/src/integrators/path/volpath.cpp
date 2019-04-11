@@ -224,7 +224,7 @@ public:
 				/*                          Luminaire sampling                          */
 				/* ==================================================================== */
 
-				const BSDF *bsdf = its.getBSDF(ray);
+				const BSDF *bsdf = its.getBSDF();
 				DirectSamplingRecord dRec(its);
 
 				/* Estimate the direct illumination if this is requested */

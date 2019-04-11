@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	Mitsuba conversion of the classic Cornell Box scene (mitsuba-renderer.org).
+	Edited by us to have an upside-down light source.
+-->
+
+<scene version="0.5.0">
+	<integrator type="guided_path">
+		<!-- Parameters for the guided path tracer by Vorba et al. [2014] -->
+		<!--<integer name="maxDepth" value="40"/>
+		<integer name="nImportons" value="300000"/>
+		<integer name="nPhotons" value="300000"/>
+		<integer name="passes" value="30"/>
+		<boolean name="showVisualization" value="false"/>
+		<boolean name="strictNormals" value="true"/>
+		<boolean name="useEnvSampler" value="true"/>-->
+
+		<!-- Parameters for our guided path tracer -->
+		<integer name="sppPerPass" value="1"/>
+
+		<string name="nee" value="never"/>
+		<string name="budgetType" value="spp"/>
+		<float name="budget" value="127"/>
+
+		<!--
+			The following parameters enable all improvements that were added
+			to this codebase after the publication of Mueller et al. [2017].
+			See README.md for additional information.
+		-->
+		<string name="bsdfSamplingFractionLoss" value="kl"/>
+		<string name="spatialFilter" value="stochastic"/>
+		<string name="directionalFilter" value="box"/>
+		<integer name="sTreeThreshold" value="4000"/>
+		<integer name="sppPerPass" value="1"/>
+	</integrator>
+
+	<sensor type="perspective">
+		<string name="fovAxis" value="smaller"/>
+		<float name="nearClip" value="10"/>
+		<float name="farClip" value="2800"/>
+		<float name="focusDistance" value="1000"/>
+		<transform name="toWorld">
+			<lookAt origin="278, 273, -800" target="278, 273, -799" up="0, 1, 0"/>
+		</transform>
+		<float name="fov" value="39.3077"/>
+
+		<sampler type="independent">
+			<integer name="sampleCount" value="128"/>
+			<integer name="seed" value="1234"/>
+		</sampler>
+
+		<film type="hdrfilm">
+			<integer name="width" value="512"/>
+			<integer name="height" value="512"/>
+			<boolean name="banner" value="false"/>
+
+			<rfilter type="box"/>
+		</film>
+	</sensor>
+
+	<bsdf type="diffuse" id="box">
+		<spectrum name="reflectance" value="400:0.343, 404:0.445, 408:0.551, 412:0.624, 416:0.665, 420:0.687, 424:0.708, 428:0.723, 432:0.715, 436:0.71, 440:0.745, 444:0.758, 448:0.739, 452:0.767, 456:0.777, 460:0.765, 464:0.751, 468:0.745, 472:0.748, 476:0.729, 480:0.745, 484:0.757, 488:0.753, 492:0.75, 496:0.746, 500:0.747, 504:0.735, 508:0.732, 512:0.739, 516:0.734, 520:0.725, 524:0.721, 528:0.733, 532:0.725, 536:0.732, 540:0.743, 544:0.744, 548:0.748, 552:0.728, 556:0.716, 560:0.733, 564:0.726, 568:0.713, 572:0.74, 576:0.754, 580:0.764, 584:0.752, 588:0.736, 592:0.734, 596:0.741, 600:0.74, 604:0.732, 608:0.745, 612:0.755, 616:0.751, 620:0.744, 624:0.731, 628:0.733, 632:0.744, 636:0.731, 640:0.712, 644:0.708, 648:0.729, 652:0.73, 656:0.727, 660:0.707, 664:0.703, 668:0.729, 672:0.75, 676:0.76, 680:0.751, 684:0.739, 688:0.724, 692:0.73, 696:0.74, 700:0.737"/>
+	</bsdf>
+
+	<bsdf type="diffuse" id="white">
+		<spectrum name="reflectance" value="400:0.343, 404:0.445, 408:0.551, 412:0.624, 416:0.665, 420:0.687, 424:0.708, 428:0.723, 432:0.715, 436:0.71, 440:0.745, 444:0.758, 448:0.739, 452:0.767, 456:0.777, 460:0.765, 464:0.751, 468:0.745, 472:0.748, 476:0.729, 480:0.745, 484:0.757, 488:0.753, 492:0.75, 496:0.746, 500:0.747, 504:0.735, 508:0.732, 512:0.739, 516:0.734, 520:0.725, 524:0.721, 528:0.733, 532:0.725, 536:0.732, 540:0.743, 544:0.744, 548:0.748, 552:0.728, 556:0.716, 560:0.733, 564:0.726, 568:0.713, 572:0.74, 576:0.754, 580:0.764, 584:0.752, 588:0.736, 592:0.734, 596:0.741, 600:0.74, 604:0.732, 608:0.745, 612:0.755, 616:0.751, 620:0.744, 624:0.731, 628:0.733, 632:0.744, 636:0.731, 640:0.712, 644:0.708, 648:0.729, 652:0.73, 656:0.727, 660:0.707, 664:0.703, 668:0.729, 672:0.75, 676:0.76, 680:0.751, 684:0.739, 688:0.724, 692:0.73, 696:0.74, 700:0.737"/>
+	</bsdf>
+
+	<bsdf type="diffuse" id="red">
+		<spectrum name="reflectance" value="400:0.04, 404:0.046, 408:0.048, 412:0.053, 416:0.049, 420:0.05, 424:0.053, 428:0.055, 432:0.057, 436:0.056, 440:0.059, 444:0.057, 448:0.061, 452:0.061, 456:0.06, 460:0.062, 464:0.062, 468:0.062, 472:0.061, 476:0.062, 480:0.06, 484:0.059, 488:0.057, 492:0.058, 496:0.058, 500:0.058, 504:0.056, 508:0.055, 512:0.056, 516:0.059, 520:0.057, 524:0.055, 528:0.059, 532:0.059, 536:0.058, 540:0.059, 544:0.061, 548:0.061, 552:0.063, 556:0.063, 560:0.067, 564:0.068, 568:0.072, 572:0.08, 576:0.09, 580:0.099, 584:0.124, 588:0.154, 592:0.192, 596:0.255, 600:0.287, 604:0.349, 608:0.402, 612:0.443, 616:0.487, 620:0.513, 624:0.558, 628:0.584, 632:0.62, 636:0.606, 640:0.609, 644:0.651, 648:0.612, 652:0.61, 656:0.65, 660:0.638, 664:0.627, 668:0.62, 672:0.63, 676:0.628, 680:0.642, 684:0.639, 688:0.657, 692:0.639, 696:0.635, 700:0.642"/>
+	</bsdf>
+
+	<bsdf type="diffuse" id="green">
+		<spectrum name="reflectance" value="400:0.092, 404:0.096, 408:0.098, 412:0.097, 416:0.098, 420:0.095, 424:0.095, 428:0.097, 432:0.095, 436:0.094, 440:0.097, 444:0.098, 448:0.096, 452:0.101, 456:0.103, 460:0.104, 464:0.107, 468:0.109, 472:0.112, 476:0.115, 480:0.125, 484:0.14, 488:0.16, 492:0.187, 496:0.229, 500:0.285, 504:0.343, 508:0.39, 512:0.435, 516:0.464, 520:0.472, 524:0.476, 528:0.481, 532:0.462, 536:0.447, 540:0.441, 544:0.426, 548:0.406, 552:0.373, 556:0.347, 560:0.337, 564:0.314, 568:0.285, 572:0.277, 576:0.266, 580:0.25, 584:0.23, 588:0.207, 592:0.186, 596:0.171, 600:0.16, 604:0.148, 608:0.141, 612:0.136, 616:0.13, 620:0.126, 624:0.123, 628:0.121, 632:0.122, 636:0.119, 640:0.114, 644:0.115, 648:0.117, 652:0.117, 656:0.118, 660:0.12, 664:0.122, 668:0.128, 672:0.132, 676:0.139, 680:0.144, 684:0.146, 688:0.15, 692:0.152, 696:0.157, 700:0.159"/>
+	</bsdf>
+
+	<bsdf type="diffuse" id="light">
+		<spectrum name="reflectance" value="400:0.78, 500:0.78, 600:0.78, 700:0.78"/>
+	</bsdf>
+
+	<shape type="obj">
+		<string name="filename" value="meshes/cbox_luminaire.obj"/>
+		<transform name="toWorld">
+			<rotate x="1" angle="180"/>
+			<translate x="0" y="1020" z="550"/>
+		</transform>
+
+		<ref id="light"/>
+
+		<emitter type="area">
+			<spectrum name="radiance" value="400:0, 500:16, 600:31.2, 700:36.8"/>
+		</emitter>
+	</shape>
+
+	<shape type="obj">
+		<string name="filename" value="meshes/cbox_floor.obj"/>
+
+		<ref id="white"/>
+	</shape>
+
+	<shape type="obj">
+		<string name="filename" value="meshes/cbox_ceiling.obj"/>
+
+		<ref id="white"/>
+	</shape>
+
+	<shape type="obj">
+		<string name="filename" value="meshes/cbox_back.obj"/>
+
+		<ref id="white"/>
+	</shape>
+
+	<shape type="obj">
+		<string name="filename" value="meshes/cbox_greenwall.obj"/>
+
+		<ref id="green"/>
+	</shape>
+
+	<shape type="obj">
+		<string name="filename" value="meshes/cbox_redwall.obj"/>
+
+		<ref id="red"/>
+	</shape>
+
+	<shape type="obj">
+		<string name="filename" value="meshes/cbox_smallbox.obj"/>
+
+		<ref id="box"/>
+	</shape>
+
+	<shape type="obj">
+		<string name="filename" value="meshes/cbox_largebox.obj"/>
+
+		<ref id="box"/>
+	</shape>
+</scene>

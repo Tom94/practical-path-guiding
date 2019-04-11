@@ -39,10 +39,14 @@
 /mitsuba/build/.vs
 /mitsuba/build/[R,r]elease
 /mitsuba/build/[D,d]ebug
-/mitsuba/config.log
 /mitsuba/data
 /mitsuba/dist
+
+# Rendering artifacts
+*.log
+*.mip
 
 /visualizer/build
 
 *.vcxproj.user
+/.vscode

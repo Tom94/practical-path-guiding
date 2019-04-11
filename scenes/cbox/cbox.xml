@@ -21,17 +21,6 @@
 		<string name="nee" value="never"/>
 		<string name="budgetType" value="spp"/>
 		<float name="budget" value="127"/>
-
-		<boolean name="strictNormals" value="true"/>
-		<integer name="sTreeThreshold" value="1024"/>
-
-		<!--
-			Filtered splatting improves the learned distributions at the cost of extra computation.
-			It is especially useful for higher-resolution SDTrees which can be required
-			when illumination is localized. In this particular scene with the above sTreeThreshold
-			it pays off to perform filtered splatting.
-		-->
-		<boolean name="doFilteredSplatting" value="true"/>
 	</integrator>
 
 	<sensor type="perspective">
@@ -45,7 +34,7 @@
 		<float name="fov" value="39.3077"/>
 
 		<sampler type="independent">
-			<integer name="sampleCount" value="64"/>
+			<integer name="sampleCount" value="128"/>
 			<integer name="seed" value="1234"/>
 		</sampler>
 
