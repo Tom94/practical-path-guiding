@@ -2,6 +2,10 @@
 
 This repository contains the authors' implementation of the guided unidirectional path tracer of the research paper ["Practical Path Guiding for Efficient Light-Transport Simulation" [Müller et al. 2017]](https://tom94.net). It also includes a visualization tool for the SD-Trees learned by the guided path tracer. The guided path tracer has been implemented in the [Mitsuba Physically Based Renderer](http://mitsuba-renderer.org) and the visualization tool with the [nanogui](https://github.com/wjakob/nanogui) library.
 
+### No Support for Participating Media
+
+The guided path tracer in this repository was not designed to handle participating media, although it could potentially be extended with little effort. In its current state, scenes containing participating media might converge slowly or not to the correct result at all.
+
 ## Improvements over the Paper
 
 This repository contains improvements over what was presented in the paper of Müller et al. [2017].
@@ -12,7 +16,7 @@ The improvements are
 Since the above extensions significantly improve the algorithm, they are *disabled* by default for reproducibility of the paper's results.
 To get the optimal results *with* the improvements, simply add the following parameters to the integrator in the scene XML file
 ```xml
-<boolean name="learnBsdfSamplingFraction" value="true"/>
+<string name="bsdfSamplingFractionLoss" value="kl"/>
 <string name="spatialFilter" value="stochastic"/>
 <string name="directionalFilter" value="box"/>
 <integer name="sTreeThreshold" value="4000"/>
@@ -21,15 +25,22 @@ To get the optimal results *with* the improvements, simply add the following par
 
 Each bundled scene comes with two XML files: *scene.xml* without the above improvements, and *scene-improved.xml* with the above improvements.
 
-### No Support for Participating Media
+## Example Renders
 
-The guided path tracer in this repository was not designed to handle participating media, although it could potentially be extended with little effort. In its current state, scenes containing participating media might converge slowly or not to the correct result at all.
+| Unidirectional path tracing (no NEE) | + Müller et al. 2017 | + aforementioned improvements |
+|:---:|:---:|:---:|
+| ![unidir](resources/glossy-kitchen-path.png) | ![unidir](resources/glossy-kitchen.png) | ![unidir](resources/glossy-kitchen-improved.png) |
+
+Note: the above glossy kitchen scene is not bundled in this repository due to licensing. It can be bought [here](https://evermotion.org/shop/show_product/archinteriors-01-for-maya/3556).
 
 ## Scenes
 
 The CBOX scene was not shown in the paper but is included in this repository.
 It was downloaded from the [Mitsuba website](http://mitsuba-renderer.org/download.html) and modified such that the light source points towards the ceiling.
 This makes this scene a good test case for indirect diffuse illumination.
+
+The GLOSSY KITCHEN scene (from the above images) can be bought [here](https://evermotion.org/shop/show_product/archinteriors-01-for-maya/3556).
+It contains difficult glossy light transport that greatly benefits from path guiding and automatic MIS weight learning.
 
 The KITCHEN scene from the paper is included in this repository.
 It was originally modeled by [Jay-Artist on Blendswap](http://www.blendswap.com/user/Jay-Artist), converted into a Mitsuba scene by [Benedikt Bitterli](https://benedikt-bitterli.me/resources/), and then slightly modified by us.
