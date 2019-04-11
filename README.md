@@ -6,7 +6,15 @@ This repository contains the authors' implementation of the guided unidirectiona
 
 The guided path tracer in this repository was not designed to handle participating media, although it could potentially be extended with little effort. In its current state, scenes containing participating media might converge slowly or not to the correct result at all.
 
-## Improvements over the Paper
+## Example Renders
+
+| Unidir. path tracing (no NEE) | + Müller et al. 2017 | + improvements |
+|:---:|:---:|:---:|
+| ![unidir](resources/glossy-kitchen-path.png) | ![unidir](resources/glossy-kitchen.png) | ![unidir](resources/glossy-kitchen-improved.png) |
+
+Note: the above glossy kitchen scene is not bundled in this repository due to licensing. It can be bought [here](https://evermotion.org/shop/show_product/archinteriors-01-for-maya/3556).
+
+## Improvements
 
 This repository contains improvements over what was presented in the paper of Müller et al. [2017].
 The improvements are
@@ -24,14 +32,6 @@ To get the optimal results *with* the improvements, simply add the following par
 ```
 
 Each bundled scene comes with two XML files: *scene.xml* without the above improvements, and *scene-improved.xml* with the above improvements.
-
-## Example Renders
-
-| Unidir. path tracing (no NEE) | + Müller et al. 2017 | + aforementioned improvements |
-|:---:|:---:|:---:|
-| ![unidir](resources/glossy-kitchen-path.png) | ![unidir](resources/glossy-kitchen.png) | ![unidir](resources/glossy-kitchen-improved.png) |
-
-Note: the above glossy kitchen scene is not bundled in this repository due to licensing. It can be bought [here](https://evermotion.org/shop/show_product/archinteriors-01-for-maya/3556).
 
 ## Scenes
 
