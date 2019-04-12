@@ -20,7 +20,9 @@ This repository contains the following improvements over what was presented in t
 - Filtered SD-tree splatting for increased robustness.
 - Automatic learning of the BSDF / SD-tree sampling ratio via gradient descent based on the theory of [Neural Importance Sampling [Müller et al. 2018]](https://tom94.net).
 
-Since the above extensions significantly improve the algorithm, they are *disabled* by default for reproducibility of the paper's results.
+To see the effect of each of these improvements, compare the above example renders with [filtered SD-tree splatting only](resources/glossy-kitchen-splatting-only.png) and [sampling ratio learning only](resources/glossy-kitchen-mis-only.png).
+
+Since these improvements significantly improve the algorithm, they are *disabled* by default for reproducibility of the paper's results.
 To get the optimal results *with* the improvements, simply add the following parameters to the integrator in the scene XML file
 ```xml
 <string name="bsdfSamplingFractionLoss" value="kl"/>
