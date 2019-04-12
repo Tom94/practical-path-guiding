@@ -16,10 +16,9 @@ Note: the above glossy kitchen scene is not bundled in this repository due to li
 
 ## Improvements
 
-This repository contains improvements over what was presented in the paper of Müller et al. [2017].
-The improvements are
-- filtered SD-tree splatting for increased robustness, and
-- automatic learning of the BSDF / SD-tree sampling ratio via gradient descent based on the theory of [Neural Importance Sampling [Müller et al. 2018]](https://tom94.net).
+This repository contains the following improvements over what was presented in the paper of Müller et al. [2017]:
+- Filtered SD-tree splatting for increased robustness.
+- Automatic learning of the BSDF / SD-tree sampling ratio via gradient descent based on the theory of [Neural Importance Sampling [Müller et al. 2018]](https://tom94.net).
 
 Since the above extensions significantly improve the algorithm, they are *disabled* by default for reproducibility of the paper's results.
 To get the optimal results *with* the improvements, simply add the following parameters to the integrator in the scene XML file
