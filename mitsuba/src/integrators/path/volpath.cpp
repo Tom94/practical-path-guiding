@@ -75,7 +75,9 @@ static StatsCounter avgPathLength("Volumetric path tracer", "Average path length
  */
 class VolumetricPathTracer : public MonteCarloIntegrator {
 public:
-	VolumetricPathTracer(const Properties &props) : MonteCarloIntegrator(props) { }
+	VolumetricPathTracer(const Properties &props) : MonteCarloIntegrator(props) {
+		m_nee = props.getBoolean("nee", true);
+	}
 
 	/// Unserialize from a binary data stream
 	VolumetricPathTracer(Stream *stream, InstanceManager *manager)
@@ -228,7 +230,7 @@ public:
 				DirectSamplingRecord dRec(its);
 
 				/* Estimate the direct illumination if this is requested */
-				if ((rRec.type & RadianceQueryRecord::EDirectSurfaceRadiance) &&
+				if (m_nee && (rRec.type & RadianceQueryRecord::EDirectSurfaceRadiance) &&
 				    (bsdf->getType() & BSDF::ESmooth)) {
 					int interactions = m_maxDepth - rRec.depth - 1;
 
@@ -307,7 +309,7 @@ public:
 				/* If a luminaire was hit, estimate the local illumination and
 				   weight using the power heuristic */
 				if (!value.isZero() && (rRec.type & RadianceQueryRecord::EDirectSurfaceRadiance)) {
-					const Float emitterPdf = (!(bRec.sampledType & BSDF::EDelta)) ?
+					const Float emitterPdf = (m_nee && !(bRec.sampledType & BSDF::EDelta)) ?
 						scene->pdfEmitterDirect(dRec) : 0;
 					Li += throughput * value * miWeight(bsdfPdf, emitterPdf);
 				}
@@ -447,6 +449,9 @@ public:
 	}
 
 	MTS_DECLARE_CLASS()
+
+private:
+	bool m_nee;
 };
 
 MTS_IMPLEMENT_CLASS_S(VolumetricPathTracer, false, MonteCarloIntegrator)
