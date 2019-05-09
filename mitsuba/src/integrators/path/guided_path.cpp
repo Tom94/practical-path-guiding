@@ -1981,6 +1981,26 @@ public:
                 if (bRec.sampledType == BSDF::ENull) {
                     if (!(rRec.type & RadianceQueryRecord::EIndirectSurfaceRadiance))
                         break;
+
+                    if (m_bsdfSamplingFractionLoss != EBsdfSamplingFractionLoss::ENone && dTree && depth < NUM_VERTICES && !m_isFinalIter) {
+                        if (1 / woPdf > 0) {
+                            vertices[depth] = Vertex{
+                                dTree,
+                                dTreeVoxelSize,
+                                ray,
+                                throughput,
+                                bsdfWeight * woPdf,
+                                Spectrum{0.0f},
+                                woPdf,
+                                bsdfPdf,
+                                dTreePdf,
+                                true,
+                            };
+
+                            ++depth;
+                        }
+                    }
+
                     rRec.type = scattered ? RadianceQueryRecord::ERadianceNoEmission
                         : RadianceQueryRecord::ERadiance;
                     scene->rayIntersect(ray, its);
