@@ -6,6 +6,10 @@
 
 <scene version="0.5.0">
 	<integrator type="guided_path">
+		<boolean name="strictNormals" value="true"/>
+		<integer name="maxDepth" value="10"/>
+		<integer name="rrDepth" value="10"/>
+		
 		<!-- Parameters for the guided path tracer by Vorba et al. [2014] -->
 		<!--<integer name="maxDepth" value="40"/>
 		<integer name="nImportons" value="300000"/>
@@ -16,9 +20,6 @@
 		<boolean name="useEnvSampler" value="true"/>-->
 
 		<!-- Parameters for our guided path tracer -->
-		<integer name="sppPerPass" value="1"/>
-
-		<string name="nee" value="never"/>
 		<string name="budgetType" value="spp"/>
 		<float name="budget" value="127"/>
 
