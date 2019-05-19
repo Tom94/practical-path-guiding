@@ -28,6 +28,7 @@
 			to this codebase after the publication of Mueller et al. [2017].
 			See README.md for additional information.
 		-->
+		<string name="sampleCombination" value="inversevar"/>
 		<string name="bsdfSamplingFractionLoss" value="kl"/>
 		<string name="spatialFilter" value="stochastic"/>
 		<string name="directionalFilter" value="box"/>
