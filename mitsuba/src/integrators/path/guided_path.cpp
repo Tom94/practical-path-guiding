@@ -1695,11 +1695,14 @@ public:
                     case ESpatialFilter::EStochasticBox:
                         {
                             DTreeWrapper* splatDTree = dTree;
-                            Vector offset = {
-                                dTreeVoxelSize.x * (sampler->next1D() - 0.5f),
-                                dTreeVoxelSize.y * (sampler->next1D() - 0.5f),
-                                dTreeVoxelSize.z * (sampler->next1D() - 0.5f),
-                            };
+
+                            // Jitter the actual position within the
+                            // filter box to perform stochastic filtering.
+                            Vector offset = dTreeVoxelSize;
+                            offset.x *= sampler->next1D() - 0.5f;
+                            offset.y *= sampler->next1D() - 0.5f;
+                            offset.z *= sampler->next1D() - 0.5f;
+
                             Point origin = sdTree.aabb().clip(ray.o + offset);
                             splatDTree = sdTree.dTreeWrapper(origin);
                             if (splatDTree) {
