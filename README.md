@@ -17,14 +17,16 @@ Note: the above glossy kitchen scene is not bundled in this repository due to li
 ## Improvements
 
 This repository contains the following improvements over what was presented in the paper of Müller et al. [2017]:
+- Inverse-variance-based sample combination to discard fewer samples.
 - Filtered SD-tree splatting for increased robustness.
 - Automatic learning of the BSDF / SD-tree sampling ratio via gradient descent based on the theory of [Neural Importance Sampling [Müller et al. 2018]](https://tom94.net).
 
-To see the effect of each of these improvements, compare the above example renders with [filtered SD-tree splatting only](resources/glossy-kitchen-splatting-only.png) and [sampling ratio learning only](resources/glossy-kitchen-mis-only.png).
+To see the effect of each of these improvements, compare the above example renders with [only the inverse-variance-based sample combination](resources/glossy-kitchen-inverse-variance-only.png), [only filtered SD-tree splatting](resources/glossy-kitchen-splatting-only.png) and [only sampling ratio learning](resources/glossy-kitchen-mis-only.png).
 
 Since these improvements significantly improve the algorithm, they are *disabled* by default for reproducibility of the paper's results.
 To get the optimal results *with* the improvements, simply add the following parameters to the integrator in the scene XML file
 ```xml
+<string name="sampleCombination" value="inversevar"/>
 <string name="bsdfSamplingFractionLoss" value="kl"/>
 <string name="spatialFilter" value="stochastic"/>
 <string name="directionalFilter" value="box"/>
@@ -74,6 +76,7 @@ The torus, situated inside of a glass cube, gives rise to difficult specular-dif
 - `GuidedPathTracer` (*guided_path.cpp*)
   - Added the guided path tracer implementing [Müller et al. 2017].
   - Additionally, implemented the following improvements that are not implemented in the paper:
+    - Inverse-variance-based sample combination.
     - Filtered SD-tree splatting.
     - Automatic learning of the BSDF / SD-tree sampling ratio via gradient descent based on the theory of [Neural Importance Sampling [Müller et al. 2018]](https://tom94.net).
 - `ImageBlock` (*imageblock.h*)

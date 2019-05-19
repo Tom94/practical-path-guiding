@@ -1,6 +1,6 @@
 #!/usr/local/bin/fish
 
-set MITSUBA_DIR (dirname (status --current-filename))
+set MITSUBA_DIR (realpath (dirname (status --current-filename)))
 
 if [ (uname) = "Darwin" ]
     set -x PATH "$MITSUBA_DIR/Mitsuba.app/Contents/MacOS" $PATH

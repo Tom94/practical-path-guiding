@@ -102,6 +102,9 @@ public:
         m_state.secondMoment = m_hparams.beta2 * m_state.secondMoment + (1 - m_hparams.beta2) * gradient * gradient;
         m_state.variable -= actualLearningRate * m_state.firstMoment / (std::sqrt(m_state.secondMoment) + m_hparams.epsilon);
 
+        // Clamp the variable to the range [-20, 20] as a safeguard to avoid numerical instability:
+        // since the sigmoid involves the exponential of the variable, value of -20 or 20 already yield
+        // in *extremely* small and large results that are pretty much never necessary in practice.
         m_state.variable = std::min(std::max(m_state.variable, -20.0f), 20.0f);
     }
 
@@ -129,10 +132,16 @@ private:
     } m_hparams;
 };
 
+enum class ESampleCombination {
+    EDiscard,
+    EDiscardWithAutomaticBudget,
+    EInverseVariance,
+};
+
 enum class EBsdfSamplingFractionLoss {
     ENone,
     EKL,
-    EChiSquared,
+    EVariance,
 };
 
 enum class ESpatialFilter {
@@ -150,22 +159,22 @@ class QuadTreeNode {
 public:
     QuadTreeNode() {
         m_children = {};
-        for (size_t i = 0; i < m_mean.size(); ++i) {
-            m_mean[i].store(0, std::memory_order_relaxed);
+        for (size_t i = 0; i < m_sum.size(); ++i) {
+            m_sum[i].store(0, std::memory_order_relaxed);
         }
     }
 
-    void setMean(int index, Float val) {
-        m_mean[index].store(val, std::memory_order_relaxed);
+    void setSum(int index, Float val) {
+        m_sum[index].store(val, std::memory_order_relaxed);
     }
 
-    Float mean(int index) const {
-        return m_mean[index].load(std::memory_order_relaxed);
+    Float sum(int index) const {
+        return m_sum[index].load(std::memory_order_relaxed);
     }
 
     void copyFrom(const QuadTreeNode& arg) {
         for (int i = 0; i < 4; ++i) {
-            setMean(i, arg.mean(i));
+            setSum(i, arg.sum(i));
             m_children[i] = arg.m_children[i];
         }
     }
@@ -187,9 +196,9 @@ public:
         return m_children[idx];
     }
 
-    void setMean(Float meanVal) {
+    void setSum(Float val) {
         for (int i = 0; i < 4; ++i) {
-            setMean(i, meanVal);
+            setSum(i, val);
         }
     }
 
@@ -207,11 +216,14 @@ public:
         return res;
     }
 
+    // Evaluates the directional irradiance *sum density* (i.e. sum / area) at a given location p.
+    // To obtain radiance, the sum density (result of this function) must be divided
+    // by the total statistical weight of the estimates that were summed up.
     Float eval(Point2& p, const std::vector<QuadTreeNode>& nodes) const {
         SAssert(p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1);
         const int index = childIndex(p);
         if (isLeaf(index)) {
-            return 4 * mean(index);
+            return 4 * sum(index);
         } else {
             return 4 * nodes[child(index)].eval(p, nodes);
         }
@@ -220,11 +232,11 @@ public:
     Float pdf(Point2& p, const std::vector<QuadTreeNode>& nodes) const {
         SAssert(p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1);
         const int index = childIndex(p);
-        if (!(mean(index) > 0)) {
+        if (!(sum(index) > 0)) {
             return 0;
         }
 
-        const Float factor = 4 * mean(index) / (mean(0) + mean(1) + mean(2) + mean(3));
+        const Float factor = 4 * sum(index) / (sum(0) + sum(1) + sum(2) + sum(3));
         if (isLeaf(index)) {
             return factor;
         } else {
@@ -245,10 +257,10 @@ public:
     Point2 sample(Sampler* sampler, const std::vector<QuadTreeNode>& nodes) const {
         int index = 0;
 
-        Float topLeft = mean(0);
-        Float topRight = mean(1);
-        Float partial = topLeft + mean(2);
-        Float total = partial + topRight + mean(3);
+        Float topLeft = sum(0);
+        Float topRight = sum(1);
+        Float partial = topLeft + sum(2);
+        Float total = partial + topRight + sum(3);
 
         // Should only happen when there are numerical instabilities.
         if (!(total > 0.0f)) {
@@ -288,14 +300,14 @@ public:
         }
     }
 
-    void record(Point2& p, Float radiance, std::vector<QuadTreeNode>& nodes) {
+    void record(Point2& p, Float irradiance, std::vector<QuadTreeNode>& nodes) {
         SAssert(p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1);
         int index = childIndex(p);
 
         if (isLeaf(index)) {
-            addToAtomicFloat(m_mean[index], radiance);
+            addToAtomicFloat(m_sum[index], irradiance);
         } else {
-            nodes[child(index)].record(p, radiance, nodes);
+            nodes[child(index)].record(p, irradiance, nodes);
         }
     }
 
@@ -311,17 +323,13 @@ public:
         Float childSize = nodeSize / 2;
         for (int i = 0; i < 4; ++i) {
             Point2 childOrigin = nodeOrigin;
-            if (i & 1) {
-                childOrigin[0] += childSize;
-            }
-            if (i & 2) {
-                childOrigin[1] += childSize;
-            }
+            if (i & 1) { childOrigin[0] += childSize; }
+            if (i & 2) { childOrigin[1] += childSize; }
 
             Float w = computeOverlappingArea(origin, origin + Point2(size), childOrigin, childOrigin + Point2(childSize));
             if (w > 0.0f) {
                 if (isLeaf(i)) {
-                    addToAtomicFloat(m_mean[i], value * w);
+                    addToAtomicFloat(m_sum[i], value * w);
                 } else {
                     nodes[child(i)].record(origin, size, childOrigin, childSize, value, nodes);
                 }
@@ -333,22 +341,32 @@ public:
         return child(index) == 0;
     }
 
+    // Ensure that each quadtree node's sum of irradiance estimates
+    // equals that of all its children.
     void build(std::vector<QuadTreeNode>& nodes) {
         for (int i = 0; i < 4; ++i) {
-            if (!isLeaf(i)) {
-                QuadTreeNode& c = nodes[child(i)];
-                c.build(nodes);
-                Float mean = 0;
-                for (int j = 0; j < 4; ++j) {
-                    mean += c.mean(j);
-                }
-                setMean(i, mean);
+            // During sampling, all irradiance estimates are accumulated in
+            // the leaves, so the leaves are built by definition.
+            if (isLeaf(i)) {
+                continue;
             }
+
+            QuadTreeNode& c = nodes[child(i)];
+
+            // Recursively build each child such that their sum becomes valid...
+            c.build(nodes);
+
+            // ...then sum up the children's sums.
+            Float sum = 0;
+            for (int j = 0; j < 4; ++j) {
+                sum += c.sum(j);
+            }
+            setSum(i, sum);
         }
     }
 
 private:
-    std::array<std::atomic<Float>, 4> m_mean;
+    std::array<std::atomic<Float>, 4> m_sum;
     std::array<uint16_t, 4> m_children;
 };
 
@@ -359,7 +377,7 @@ public:
         m_atomic.sum.store(0, std::memory_order_relaxed);
         m_maxDepth = 0;
         m_nodes.emplace_back();
-        m_nodes.front().setMean(0.0f);
+        m_nodes.front().setSum(0.0f);
     }
 
     const QuadTreeNode& node(size_t i) const {
@@ -374,13 +392,13 @@ public:
         return factor * m_atomic.sum;
     }
 
-    void recordRadiance(Point2 p, Float radiance, Float statisticalWeight, EDirectionalFilter directionalFilter) {
+    void recordIrradiance(Point2 p, Float irradiance, Float statisticalWeight, EDirectionalFilter directionalFilter) {
         if (std::isfinite(statisticalWeight) && statisticalWeight > 0) {
             addToAtomicFloat(m_atomic.statisticalWeight, statisticalWeight);
 
-            if (std::isfinite(radiance) && radiance > 0) {
+            if (std::isfinite(irradiance) && irradiance > 0) {
                 if (directionalFilter == EDirectionalFilter::ENearest) {
-                    m_nodes[0].record(p, radiance * statisticalWeight, m_nodes);
+                    m_nodes[0].record(p, irradiance * statisticalWeight, m_nodes);
                 } else {
                     int depth = depthAt(p);
                     Float size = std::pow(0.5f, depth);
@@ -388,13 +406,13 @@ public:
                     Point2 origin = p;
                     origin.x -= size / 2;
                     origin.y -= size / 2;
-                    m_nodes[0].record(origin, size, Point2(0.0f), 1.0f, radiance * statisticalWeight / (size * size), m_nodes);
+                    m_nodes[0].record(origin, size, Point2(0.0f), 1.0f, irradiance * statisticalWeight / (size * size), m_nodes);
                 }
             }
         }
     }
 
-    Float evalPdf(Point2 p) const {
+    Float pdf(Point2 p) const {
         if (!(mean() > 0)) {
             return 1 / (4 * M_PI);
         }
@@ -410,7 +428,7 @@ public:
         return m_maxDepth;
     }
 
-    Point2 sampleRadiance(Sampler* sampler) const {
+    Point2 sample(Sampler* sampler) const {
         if (!(mean() > 0)) {
             return sampler->next2D();
         }
@@ -463,7 +481,7 @@ public:
 
             for (int i = 0; i < 4; ++i) {
                 const QuadTreeNode& otherNode = sNode.otherDTree->m_nodes[sNode.otherNodeIndex];
-                const Float fraction = total > 0 ? (otherNode.mean(i) / total) : std::pow(0.25f, sNode.depth);
+                const Float fraction = total > 0 ? (otherNode.sum(i) / total) : std::pow(0.25f, sNode.depth);
                 SAssert(fraction <= 1.0f + Epsilon);
 
                 if (sNode.depth < newMaxDepth && fraction > subdivisionThreshold) {
@@ -476,7 +494,7 @@ public:
 
                     m_nodes[sNode.nodeIndex].setChild(i, static_cast<uint16_t>(m_nodes.size()));
                     m_nodes.emplace_back();
-                    m_nodes.back().setMean(otherNode.mean(i) / 4);
+                    m_nodes.back().setSum(otherNode.sum(i) / 4);
 
                     if (m_nodes.size() > std::numeric_limits<uint16_t>::max()) {
                         SLog(EWarn, "DTreeWrapper hit maximum children count.");
@@ -491,7 +509,7 @@ public:
         //m_nodes.shrink_to_fit();
 
         for (auto& node : m_nodes) {
-            node.setMean(0);
+            node.setSum(0);
         }
     }
 
@@ -501,13 +519,17 @@ public:
 
     void build() {
         auto& root = m_nodes[0];
+
+        // Build the quadtree recursively, starting from its root.
         root.build(m_nodes);
 
-        Float mean = 0;
+        // Ensure that the overall sum of irradiance estimates equals
+        // the sum of irradiance estimates found in the quadtree.
+        Float sum = 0;
         for (int i = 0; i < 4; ++i) {
-            mean += root.mean(i);
+            sum += root.sum(i);
         }
-        m_atomic.sum.store(mean);
+        m_atomic.sum.store(sum);
     }
 
 private:
@@ -519,17 +541,13 @@ private:
             statisticalWeight.store(0, std::memory_order_relaxed);
         }
 
-        void copyFrom(const Atomic& arg) {
-            sum.store(arg.sum.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            statisticalWeight.store(arg.statisticalWeight.load(std::memory_order_relaxed), std::memory_order_relaxed);
-        }
-
         Atomic(const Atomic& arg) {
-            copyFrom(arg);
+            *this = arg;
         }
 
         Atomic& operator=(const Atomic& arg) {
-            copyFrom(arg);
+            sum.store(arg.sum.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            statisticalWeight.store(arg.statisticalWeight.load(std::memory_order_relaxed), std::memory_order_relaxed);
             return *this;
         }
 
@@ -554,13 +572,14 @@ public:
     DTreeWrapper() {
     }
 
-    void recordRadiance(const DTreeRecord& rec, EDirectionalFilter directionalFilter, EBsdfSamplingFractionLoss bsdfSamplingFractionLoss) {
+    void record(const DTreeRecord& rec, EDirectionalFilter directionalFilter, EBsdfSamplingFractionLoss bsdfSamplingFractionLoss) {
         if (!rec.isDelta) {
-            building.recordRadiance(dirToCanonical(rec.d), rec.radiance / rec.woPdf, rec.statisticalWeight, directionalFilter);
+            Float irradiance = rec.radiance / rec.woPdf;
+            building.recordIrradiance(dirToCanonical(rec.d), irradiance, rec.statisticalWeight, directionalFilter);
         }
 
         if (bsdfSamplingFractionLoss != EBsdfSamplingFractionLoss::ENone && rec.product > 0) {
-            optimizeBsdfSamplingFraction(rec, bsdfSamplingFractionLoss == EBsdfSamplingFractionLoss::EKL ? 1 : 2);
+            optimizeBsdfSamplingFraction(rec, bsdfSamplingFractionLoss == EBsdfSamplingFractionLoss::EKL ? 1.0f : 2.0f);
         }
     }
 
@@ -597,12 +616,12 @@ public:
         building.reset(sampling, maxDepth, subdivisionThreshold);
     }
 
-    Vector sampleDirection(Sampler* sampler) const {
-        return canonicalToDir(sampling.sampleRadiance(sampler));
+    Vector sample(Sampler* sampler) const {
+        return canonicalToDir(sampling.sample(sampler));
     }
 
-    Float samplePdf(const Vector& dir) const {
-        return sampling.evalPdf(dirToCanonical(dir));
+    Float pdf(const Vector& dir) const {
+        return sampling.pdf(dirToCanonical(dir));
     }
 
     Float diff(const DTreeWrapper& other) const {
@@ -686,7 +705,7 @@ public:
         for (size_t i = 0; i < sampling.numNodes(); ++i) {
             const auto& node = sampling.node(i);
             for (int j = 0; j < 4; ++j) {
-                blob << (float)node.mean(j) << (uint16_t)node.child(j);
+                blob << (float)node.sum(j) << (uint16_t)node.child(j);
             }
         }
     }
@@ -801,11 +820,11 @@ struct STreeNode {
         return lengths[0] * lengths[1] * lengths[2];
     }
 
-    void recordRadiance(const Point& min1, const Point& max1, Point min2, Vector size2, const DTreeRecord& rec, EDirectionalFilter directionalFilter, EBsdfSamplingFractionLoss bsdfSamplingFractionLoss, std::vector<STreeNode>& nodes) {
+    void record(const Point& min1, const Point& max1, Point min2, Vector size2, const DTreeRecord& rec, EDirectionalFilter directionalFilter, EBsdfSamplingFractionLoss bsdfSamplingFractionLoss, std::vector<STreeNode>& nodes) {
         Float w = computeOverlappingVolume(min1, max1, min2, min2 + size2);
         if (w > 0) {
             if (isLeaf) {
-                dTree.recordRadiance({ rec.d, rec.radiance, rec.product, rec.woPdf, rec.bsdfPdf, rec.dTreePdf, rec.statisticalWeight * w, rec.isDelta }, directionalFilter, bsdfSamplingFractionLoss);
+                dTree.record({ rec.d, rec.radiance, rec.product, rec.woPdf, rec.bsdfPdf, rec.dTreePdf, rec.statisticalWeight * w, rec.isDelta }, directionalFilter, bsdfSamplingFractionLoss);
             } else {
                 size2[axis] /= 2;
                 for (int i = 0; i < 2; ++i) {
@@ -813,7 +832,7 @@ struct STreeNode {
                         min2[axis] += size2[axis];
                     }
 
-                    nodes[children[i]].recordRadiance(min1, max1, min2, size2, rec, directionalFilter, bsdfSamplingFractionLoss, nodes);
+                    nodes[children[i]].record(min1, max1, min2, size2, rec, directionalFilter, bsdfSamplingFractionLoss, nodes);
                 }
             }
         }
@@ -913,14 +932,14 @@ public:
         }
     }
 
-    void recordRadiance(const Point& p, const Vector& dTreeVoxelSize, DTreeRecord rec, EDirectionalFilter directionalFilter, EBsdfSamplingFractionLoss bsdfSamplingFractionLoss) {
+    void record(const Point& p, const Vector& dTreeVoxelSize, DTreeRecord rec, EDirectionalFilter directionalFilter, EBsdfSamplingFractionLoss bsdfSamplingFractionLoss) {
         Float volume = 1;
         for (int i = 0; i < 3; ++i) {
             volume *= dTreeVoxelSize[i];
         }
 
         rec.statisticalWeight /= volume;
-        m_nodes[0].recordRadiance(p - dTreeVoxelSize * 0.5f, p + dTreeVoxelSize * 0.5f, m_aabb.min, m_aabb.getExtents(), rec, directionalFilter, bsdfSamplingFractionLoss, m_nodes);
+        m_nodes[0].record(p - dTreeVoxelSize * 0.5f, p + dTreeVoxelSize * 0.5f, m_aabb.min, m_aabb.getExtents(), rec, directionalFilter, bsdfSamplingFractionLoss, m_nodes);
     }
 
     void dump(BlobWriter& blob) const {
@@ -1004,6 +1023,17 @@ public:
             Assert(false);
         }
 
+        m_sampleCombinationStr = props.getString("sampleCombination", "automatic");
+        if (m_sampleCombinationStr == "discard") {
+            m_sampleCombination = ESampleCombination::EDiscard;
+        } else if (m_sampleCombinationStr == "automatic") {
+            m_sampleCombination = ESampleCombination::EDiscardWithAutomaticBudget;
+        } else if (m_sampleCombinationStr == "inversevar") {
+            m_sampleCombination = ESampleCombination::EInverseVariance;
+        } else {
+            Assert(false);
+        }
+
         m_spatialFilterStr = props.getString("spatialFilter", "nearest");
         if (m_spatialFilterStr == "nearest") {
             m_spatialFilter = ESpatialFilter::ENearest;
@@ -1029,8 +1059,8 @@ public:
             m_bsdfSamplingFractionLoss = EBsdfSamplingFractionLoss::ENone;
         } else if (m_bsdfSamplingFractionLossStr == "kl") {
             m_bsdfSamplingFractionLoss = EBsdfSamplingFractionLoss::EKL;
-        } else if (m_bsdfSamplingFractionLossStr == "chi2") {
-            m_bsdfSamplingFractionLoss = EBsdfSamplingFractionLoss::EChiSquared;
+        } else if (m_bsdfSamplingFractionLossStr == "var") {
+            m_bsdfSamplingFractionLoss = EBsdfSamplingFractionLoss::EVariance;
         } else {
             Assert(false);
         }
@@ -1039,7 +1069,6 @@ public:
         m_sTreeThreshold = props.getInteger("sTreeThreshold", 12000);
         m_dTreeThreshold = props.getFloat("dTreeThreshold", 0.01f);
         m_bsdfSamplingFraction = props.getFloat("bsdfSamplingFraction", 0.5f);
-        m_automaticBudget = props.getBoolean("automaticBudget", true);
         m_sppPerPass = props.getInteger("sppPerPass", 4);
 
         m_budgetStr = props.getString("budgetType", "seconds");
@@ -1260,6 +1289,12 @@ public:
         Bitmap* squaredImage = m_squaredImage->getBitmap();
         Bitmap* image = m_image->getBitmap();
 
+        if (m_sampleCombination == ESampleCombination::EInverseVariance) {
+            // Record all previously rendered iterations such that later on all iterations can be
+            // combined by weighting them by their estimated inverse pixel variance.
+            m_images.push_back(image->clone());
+        }
+
         m_varianceBuffer->clear();
 
         int N = passesRenderedLocal * m_sppPerPass;
@@ -1271,11 +1306,17 @@ public:
                 Spectrum pixel = image->getPixel(pos);
                 Spectrum localVar = squaredImage->getPixel(pos) - pixel * pixel / (Float)N;
                 image->setPixel(pos, localVar);
-                variance += localVar.getLuminance();
+                // The local variance is clamped such that fireflies don't cause crazily unstable estimates.
+                variance += std::min(localVar.getLuminance(), 10000.0f);
             }
 
         variance /= (Float)size.x * size.y * (N - 1);
         m_varianceBuffer->put(m_image);
+
+        if (m_sampleCombination == ESampleCombination::EInverseVariance) {
+            // Record estimated mean pixel variance for later use in weighting of all images.
+            m_variances.push_back(variance);
+        }
 
         Float seconds = computeElapsedSeconds(start);
 
@@ -1355,7 +1396,7 @@ public:
                 lastVarAtEnd, currentVarAtEnd);
 
             remainingPasses -= passesThisIteration;
-            if (m_automaticBudget && remainingPasses > 0 && (
+            if (m_sampleCombination == ESampleCombination::EDiscardWithAutomaticBudget && remainingPasses > 0 && (
                     // if there is any time remaining we want to keep going if
                     // either will have less time next iter
                     remainingPasses < passesThisIteration ||
@@ -1438,7 +1479,7 @@ public:
                 lastVarAtEnd, currentVarAtEnd);
 
             remainingTime -= secondsIter;
-            if (m_automaticBudget && remainingTime > 0 && (
+            if (m_sampleCombination == ESampleCombination::EDiscardWithAutomaticBudget && remainingTime > 0 && (
                     // if there is any time remaining we want to keep going if
                     // either will have less time next iter
                     remainingTime < secondsIter ||
@@ -1491,8 +1532,11 @@ public:
         m_varianceBuffer = static_cast<Film*>(PluginManager::getInstance()->createObject(MTS_CLASS(Film), properties));
         m_varianceBuffer->setDestinationFile(scene->getDestinationFile(), 0);
 
-        m_squaredImage = new ImageBlock(Bitmap::ESpectrumAlphaWeight, film->getSize(), film->getReconstructionFilter());
-        m_image = new ImageBlock(Bitmap::ESpectrumAlphaWeight, film->getSize(), film->getReconstructionFilter());
+        m_squaredImage = new ImageBlock(Bitmap::ESpectrumAlphaWeight, film->getCropSize());
+        m_image = new ImageBlock(Bitmap::ESpectrumAlphaWeight, film->getCropSize());
+
+        m_images.clear();
+        m_variances.clear();
 
         Log(EInfo, "Starting render job (%ix%i, " SIZE_T_FMT " %s, " SSE_STR ") ..", film->getCropSize().x, film->getCropSize().y, nCores, nCores == 1 ? "core" : "cores");
 
@@ -1519,6 +1563,23 @@ public:
         sched->unregisterResource(integratorResID);
 
         m_progress = nullptr;
+
+        if (m_sampleCombination == ESampleCombination::EInverseVariance) {
+            // Combine the last 4 images according to their inverse variance
+            film->clear();
+            ref<ImageBlock> tmp = new ImageBlock(Bitmap::ESpectrum, film->getCropSize());
+            size_t begin = m_images.size() - std::min(m_images.size(), (size_t)4);
+
+            Float totalWeight = 0;
+            for (size_t i = begin; i < m_variances.size(); ++i) {
+                totalWeight += 1.0f / m_variances[i];
+            }
+
+            for (size_t i = begin; i < m_images.size(); ++i) {
+                m_images[i]->convert(tmp->getBitmap(), 1.0f / m_variances[i] / totalWeight);
+                film->addBitmap(tmp->getBitmap());
+            }
+        }
 
         return result;
     }
@@ -1617,7 +1678,7 @@ public:
             result *= bsdfPdf;
         } else {
             sample.x = (sample.x - bsdfSamplingFraction) / (1 - bsdfSamplingFraction);
-            bRec.wo = bRec.its.toLocal(dTree->sampleDirection(rRec.sampler));
+            bRec.wo = bRec.its.toLocal(dTree->sample(rRec.sampler));
             result = bsdf->eval(bRec);
         }
 
@@ -1644,7 +1705,7 @@ public:
             return;
         }
 
-        dTreePdf = dTree->samplePdf(bRec.its.toWorld(bRec.wo));
+        dTreePdf = dTree->pdf(bRec.its.toWorld(bRec.wo));
         woPdf = bsdfSamplingFraction * bsdfPdf + (1 - bsdfSamplingFraction) * dTreePdf;
     }
 
@@ -1680,32 +1741,35 @@ public:
                 DTreeRecord rec{ ray.d, localRadiance.average(), product.average(), woPdf, bsdfPdf, dTreePdf, statisticalWeight, isDelta };
                 switch (spatialFilter) {
                     case ESpatialFilter::ENearest:
-                        dTree->recordRadiance(rec, directionalFilter, bsdfSamplingFractionLoss);
+                        dTree->record(rec, directionalFilter, bsdfSamplingFractionLoss);
                         break;
                     case ESpatialFilter::EStochasticBox:
                         {
                             DTreeWrapper* splatDTree = dTree;
-                            Vector offset = {
-                                dTreeVoxelSize.x * (sampler->next1D() - 0.5f),
-                                dTreeVoxelSize.y * (sampler->next1D() - 0.5f),
-                                dTreeVoxelSize.z * (sampler->next1D() - 0.5f),
-                            };
+
+                            // Jitter the actual position within the
+                            // filter box to perform stochastic filtering.
+                            Vector offset = dTreeVoxelSize;
+                            offset.x *= sampler->next1D() - 0.5f;
+                            offset.y *= sampler->next1D() - 0.5f;
+                            offset.z *= sampler->next1D() - 0.5f;
+
                             Point origin = sdTree.aabb().clip(ray.o + offset);
                             splatDTree = sdTree.dTreeWrapper(origin);
                             if (splatDTree) {
-                                splatDTree->recordRadiance(rec, directionalFilter, bsdfSamplingFractionLoss);
+                                splatDTree->record(rec, directionalFilter, bsdfSamplingFractionLoss);
                             }
                             break;
                         }
                     case ESpatialFilter::EBox:
-                        sdTree.recordRadiance(ray.o, dTreeVoxelSize, rec, directionalFilter, bsdfSamplingFractionLoss);
+                        sdTree.record(ray.o, dTreeVoxelSize, rec, directionalFilter, bsdfSamplingFractionLoss);
                         break;
                 }
             }
         };
 
-        static const int NUM_VERTICES = 32;
-        std::array<Vertex, NUM_VERTICES> vertices;
+        static const int MAX_NUM_VERTICES = 32;
+        std::array<Vertex, MAX_NUM_VERTICES> vertices;
 
         /* Some aliases and local variables */
         const Scene *scene = rRec.scene;
@@ -1722,11 +1786,11 @@ public:
         Spectrum throughput(1.0f);
         bool scattered = false;
 
-        int depth = 0;
+        int nVertices = 0;
 
         auto recordRadiance = [&](Spectrum radiance) {
             Li += radiance;
-            for (int i = 0; i < depth; ++i) {
+            for (int i = 0; i < nVertices; ++i) {
                 vertices[i].record(radiance);
             }
         };
@@ -1981,6 +2045,28 @@ public:
                 if (bRec.sampledType == BSDF::ENull) {
                     if (!(rRec.type & RadianceQueryRecord::EIndirectSurfaceRadiance))
                         break;
+
+                    // There exist materials that are smooth/null hybrids (e.g. the mask BSDF), which means that
+                    // for optimal-sampling-fraction optimization we need to record null transitions for such BSDFs.
+                    if (m_bsdfSamplingFractionLoss != EBsdfSamplingFractionLoss::ENone && dTree && nVertices < MAX_NUM_VERTICES && !m_isFinalIter) {
+                        if (1 / woPdf > 0) {
+                            vertices[nVertices] = Vertex{
+                                dTree,
+                                dTreeVoxelSize,
+                                ray,
+                                throughput,
+                                bsdfWeight * woPdf,
+                                Spectrum{0.0f},
+                                woPdf,
+                                bsdfPdf,
+                                dTreePdf,
+                                true,
+                            };
+
+                            ++nVertices;
+                        }
+                    }
+
                     rRec.type = scattered ? RadianceQueryRecord::ERadianceNoEmission
                         : RadianceQueryRecord::ERadiance;
                     scene->rayIntersect(ray, its);
@@ -2004,9 +2090,9 @@ public:
                         recordRadiance(L);
                     }
 
-                    if ((!isDelta || m_bsdfSamplingFractionLoss != EBsdfSamplingFractionLoss::ENone) && dTree && depth < NUM_VERTICES && !m_isFinalIter) {
+                    if ((!isDelta || m_bsdfSamplingFractionLoss != EBsdfSamplingFractionLoss::ENone) && dTree && nVertices < MAX_NUM_VERTICES && !m_isFinalIter) {
                         if (1 / woPdf > 0) {
-                            vertices[depth] = Vertex{
+                            vertices[nVertices] = Vertex{
                                 dTree,
                                 dTreeVoxelSize,
                                 ray,
@@ -2019,7 +2105,7 @@ public:
                                 isDelta,
                             };
 
-                            ++depth;
+                            ++nVertices;
                         }
                     }
                 }
@@ -2061,8 +2147,8 @@ public:
         avgPathLength.incrementBase();
         avgPathLength += rRec.depth;
 
-        if (depth > 0 && !m_isFinalIter) {
-            for (int i = 0; i < depth; ++i) {
+        if (nVertices > 0 && !m_isFinalIter) {
+            for (int i = 0; i < nVertices; ++i) {
                 vertices[i].commit(*m_sdTree, m_doNee ? 0.5f : 1.0f, m_spatialFilter, m_directionalFilter, m_isBuilt ? m_bsdfSamplingFractionLoss : EBsdfSamplingFractionLoss::ENone, rRec.sampler);
             }
         }
@@ -2182,6 +2268,9 @@ private:
     /// The currently rendered image. Used to estimate variance.
     mutable ref<ImageBlock> m_image;
 
+    std::vector<ref<Bitmap>> m_images;
+    std::vector<Float> m_variances;
+
     /// This contains the currently estimated variance.
     mutable ref<Film> m_varianceBuffer;
 
@@ -2233,8 +2322,19 @@ private:
 
     std::vector<ref<BlockedRenderProcess>> m_renderProcesses;
 
-    /// Whether to automatically stop training when optimal. If off, then iterations are performed until the budget is exhausted.
-    bool m_automaticBudget;
+    /**
+        How to combine the samples from all path-guiding iterations:
+        - "discard":    Discard all but the last iteration.
+        - "automatic":  Discard all but the last iteration, but automatically assign an appropriately
+                        larger budget to the last [Mueller et al. 2018].
+        - "inversevar": Combine samples of the last 4 iterations based on their
+                        mean pixel variance [Mueller et al. 2018].
+        Default     = "automatic" (for reproducibility)
+        Recommended = "inversevar"
+    */
+    std::string m_sampleCombinationStr;
+    ESampleCombination m_sampleCombination;
+    
 
     /// Maximum memory footprint of the SDTree in MB. Stops subdividing once reached. -1 to disable.
     int m_sdTreeMaxMemory;
@@ -2296,7 +2396,7 @@ private:
         The following values are valid:
         - "none":  No learning (uses the fixed `m_bsdfSamplingFraction`).
         - "kl":    Optimizes bsdfSamplingFraction w.r.t. the KL divergence.
-        - "chi2":  Optimizes bsdfSamplingFraction w.r.t. the chi-squared divergence.
+        - "var":   Optimizes bsdfSamplingFraction w.r.t. variance.
         Default     = "none" (for reproducibility)
         Recommended = "kl"
     */
