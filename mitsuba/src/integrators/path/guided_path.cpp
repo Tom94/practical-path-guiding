@@ -102,6 +102,9 @@ public:
         m_state.secondMoment = m_hparams.beta2 * m_state.secondMoment + (1 - m_hparams.beta2) * gradient * gradient;
         m_state.variable -= actualLearningRate * m_state.firstMoment / (std::sqrt(m_state.secondMoment) + m_hparams.epsilon);
 
+        // Clamp the variable to the range [-20, 20] as a safeguard to avoid numerical instability:
+        // since the sigmoid involves the exponential of the variable, value of -20 or 20 already yield
+        // in *extremely* small and large results that are pretty much never necessary in practice.
         m_state.variable = std::min(std::max(m_state.variable, -20.0f), 20.0f);
     }
 
@@ -127,6 +130,12 @@ private:
         Float beta1;
         Float beta2;
     } m_hparams;
+};
+
+enum class ESampleCombination {
+    EDiscard,
+    EDiscardWithAutomaticBudget,
+    EInverseVariance,
 };
 
 enum class EBsdfSamplingFractionLoss {
@@ -570,7 +579,7 @@ public:
         }
 
         if (bsdfSamplingFractionLoss != EBsdfSamplingFractionLoss::ENone && rec.product > 0) {
-            optimizeBsdfSamplingFraction(rec, bsdfSamplingFractionLoss == EBsdfSamplingFractionLoss::EKL ? 1 : 2);
+            optimizeBsdfSamplingFraction(rec, bsdfSamplingFractionLoss == EBsdfSamplingFractionLoss::EKL ? 1.0f : 2.0f);
         }
     }
 
@@ -1014,6 +1023,17 @@ public:
             Assert(false);
         }
 
+        m_sampleCombinationStr = props.getString("sampleCombination", "automatic");
+        if (m_sampleCombinationStr == "discard") {
+            m_sampleCombination = ESampleCombination::EDiscard;
+        } else if (m_sampleCombinationStr == "automatic") {
+            m_sampleCombination = ESampleCombination::EDiscardWithAutomaticBudget;
+        } else if (m_sampleCombinationStr == "inversevar") {
+            m_sampleCombination = ESampleCombination::EInverseVariance;
+        } else {
+            Assert(false);
+        }
+
         m_spatialFilterStr = props.getString("spatialFilter", "nearest");
         if (m_spatialFilterStr == "nearest") {
             m_spatialFilter = ESpatialFilter::ENearest;
@@ -1049,7 +1069,6 @@ public:
         m_sTreeThreshold = props.getInteger("sTreeThreshold", 12000);
         m_dTreeThreshold = props.getFloat("dTreeThreshold", 0.01f);
         m_bsdfSamplingFraction = props.getFloat("bsdfSamplingFraction", 0.5f);
-        m_automaticBudget = props.getBoolean("automaticBudget", true);
         m_sppPerPass = props.getInteger("sppPerPass", 4);
 
         m_budgetStr = props.getString("budgetType", "seconds");
@@ -1270,6 +1289,12 @@ public:
         Bitmap* squaredImage = m_squaredImage->getBitmap();
         Bitmap* image = m_image->getBitmap();
 
+        if (m_sampleCombination == ESampleCombination::EInverseVariance) {
+            // Record all previously rendered iterations such that later on all iterations can be
+            // combined by weighting them by their estimated inverse pixel variance.
+            m_images.push_back(image->clone());
+        }
+
         m_varianceBuffer->clear();
 
         int N = passesRenderedLocal * m_sppPerPass;
@@ -1281,11 +1306,17 @@ public:
                 Spectrum pixel = image->getPixel(pos);
                 Spectrum localVar = squaredImage->getPixel(pos) - pixel * pixel / (Float)N;
                 image->setPixel(pos, localVar);
-                variance += localVar.getLuminance();
+                // The local variance is clamped such that fireflies don't cause crazily unstable estimates.
+                variance += std::min(localVar.getLuminance(), 10000.0f);
             }
 
         variance /= (Float)size.x * size.y * (N - 1);
         m_varianceBuffer->put(m_image);
+
+        if (m_sampleCombination == ESampleCombination::EInverseVariance) {
+            // Record estimated mean pixel variance for later use in weighting of all images.
+            m_variances.push_back(variance);
+        }
 
         Float seconds = computeElapsedSeconds(start);
 
@@ -1365,7 +1396,7 @@ public:
                 lastVarAtEnd, currentVarAtEnd);
 
             remainingPasses -= passesThisIteration;
-            if (m_automaticBudget && remainingPasses > 0 && (
+            if (m_sampleCombination == ESampleCombination::EDiscardWithAutomaticBudget && remainingPasses > 0 && (
                     // if there is any time remaining we want to keep going if
                     // either will have less time next iter
                     remainingPasses < passesThisIteration ||
@@ -1448,7 +1479,7 @@ public:
                 lastVarAtEnd, currentVarAtEnd);
 
             remainingTime -= secondsIter;
-            if (m_automaticBudget && remainingTime > 0 && (
+            if (m_sampleCombination == ESampleCombination::EDiscardWithAutomaticBudget && remainingTime > 0 && (
                     // if there is any time remaining we want to keep going if
                     // either will have less time next iter
                     remainingTime < secondsIter ||
@@ -1501,8 +1532,11 @@ public:
         m_varianceBuffer = static_cast<Film*>(PluginManager::getInstance()->createObject(MTS_CLASS(Film), properties));
         m_varianceBuffer->setDestinationFile(scene->getDestinationFile(), 0);
 
-        m_squaredImage = new ImageBlock(Bitmap::ESpectrumAlphaWeight, film->getSize(), film->getReconstructionFilter());
-        m_image = new ImageBlock(Bitmap::ESpectrumAlphaWeight, film->getSize(), film->getReconstructionFilter());
+        m_squaredImage = new ImageBlock(Bitmap::ESpectrumAlphaWeight, film->getCropSize());
+        m_image = new ImageBlock(Bitmap::ESpectrumAlphaWeight, film->getCropSize());
+
+        m_images.clear();
+        m_variances.clear();
 
         Log(EInfo, "Starting render job (%ix%i, " SIZE_T_FMT " %s, " SSE_STR ") ..", film->getCropSize().x, film->getCropSize().y, nCores, nCores == 1 ? "core" : "cores");
 
@@ -1529,6 +1563,23 @@ public:
         sched->unregisterResource(integratorResID);
 
         m_progress = nullptr;
+
+        if (m_sampleCombination == ESampleCombination::EInverseVariance) {
+            // Combine the last 4 images according to their inverse variance
+            film->clear();
+            ref<ImageBlock> tmp = new ImageBlock(Bitmap::ESpectrum, film->getCropSize());
+            size_t begin = m_images.size() - std::min(m_images.size(), (size_t)4);
+
+            Float totalWeight = 0;
+            for (size_t i = begin; i < m_variances.size(); ++i) {
+                totalWeight += 1.0f / m_variances[i];
+            }
+
+            for (size_t i = begin; i < m_images.size(); ++i) {
+                m_images[i]->convert(tmp->getBitmap(), 1.0f / m_variances[i] / totalWeight);
+                film->addBitmap(tmp->getBitmap());
+            }
+        }
 
         return result;
     }
@@ -2217,6 +2268,9 @@ private:
     /// The currently rendered image. Used to estimate variance.
     mutable ref<ImageBlock> m_image;
 
+    std::vector<ref<Bitmap>> m_images;
+    std::vector<Float> m_variances;
+
     /// This contains the currently estimated variance.
     mutable ref<Film> m_varianceBuffer;
 
@@ -2268,8 +2322,19 @@ private:
 
     std::vector<ref<BlockedRenderProcess>> m_renderProcesses;
 
-    /// Whether to automatically stop training when optimal. If off, then iterations are performed until the budget is exhausted.
-    bool m_automaticBudget;
+    /**
+        How to combine the samples from all path-guiding iterations:
+        - "discard":    Discard all but the last iteration.
+        - "automatic":  Discard all but the last iteration, but automatically assign an appropriately
+                        larger budget to the last [Mueller et al. 2018].
+        - "inversevar": Combine samples of the last 4 iterations based on their
+                        mean pixel variance [Mueller et al. 2018].
+        Default     = "automatic" (for reproducibility)
+        Recommended = "inversevar"
+    */
+    std::string m_sampleCombinationStr;
+    ESampleCombination m_sampleCombination;
+    
 
     /// Maximum memory footprint of the SDTree in MB. Stops subdividing once reached. -1 to disable.
     int m_sdTreeMaxMemory;
