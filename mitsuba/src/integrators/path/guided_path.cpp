@@ -132,7 +132,7 @@ private:
 enum class EBsdfSamplingFractionLoss {
     ENone,
     EKL,
-    EChiSquared,
+    EVariance,
 };
 
 enum class ESpatialFilter {
@@ -1039,8 +1039,8 @@ public:
             m_bsdfSamplingFractionLoss = EBsdfSamplingFractionLoss::ENone;
         } else if (m_bsdfSamplingFractionLossStr == "kl") {
             m_bsdfSamplingFractionLoss = EBsdfSamplingFractionLoss::EKL;
-        } else if (m_bsdfSamplingFractionLossStr == "chi2") {
-            m_bsdfSamplingFractionLoss = EBsdfSamplingFractionLoss::EChiSquared;
+        } else if (m_bsdfSamplingFractionLossStr == "var") {
+            m_bsdfSamplingFractionLoss = EBsdfSamplingFractionLoss::EVariance;
         } else {
             Assert(false);
         }
@@ -2331,7 +2331,7 @@ private:
         The following values are valid:
         - "none":  No learning (uses the fixed `m_bsdfSamplingFraction`).
         - "kl":    Optimizes bsdfSamplingFraction w.r.t. the KL divergence.
-        - "chi2":  Optimizes bsdfSamplingFraction w.r.t. the chi-squared divergence.
+        - "var":   Optimizes bsdfSamplingFraction w.r.t. variance.
         Default     = "none" (for reproducibility)
         Recommended = "kl"
     */

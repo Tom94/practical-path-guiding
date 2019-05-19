@@ -154,7 +154,7 @@
 			The following values are valid:
       "none": No learning (uses the parameter "Fixed BSDF Sampling Fraction").
       "kl": Optimizes bsdfSamplingFraction w.r.t. the KL divergence.
-      "chi2": Optimizes bsdfSamplingFraction w.r.t. the chi-squared divergence.
+      "var": Optimizes bsdfSamplingFraction w.r.t. variance.
 			Recommended value: "kl"
     </param>
     <param name="bsdfSamplingFraction" readableName="Fixed BSDF Sampling Fraction" type="float" default="0.5" importance="1">
