@@ -2149,7 +2149,7 @@ public:
 
         if (nVertices > 0 && !m_isFinalIter) {
             for (int i = 0; i < nVertices; ++i) {
-                vertices[i].commit(*m_sdTree, m_doNee ? 0.5f : 1.0f, m_spatialFilter, m_directionalFilter, m_isBuilt ? m_bsdfSamplingFractionLoss : EBsdfSamplingFractionLoss::ENone, rRec.sampler);
+                vertices[i].commit(*m_sdTree, m_nee == EKickstart && m_doNee ? 0.5f : 1.0f, m_spatialFilter, m_directionalFilter, m_isBuilt ? m_bsdfSamplingFractionLoss : EBsdfSamplingFractionLoss::ENone, rRec.sampler);
             }
         }
 
