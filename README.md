@@ -1,6 +1,6 @@
 ## Practical Path Guiding for Efficient Light-Transport Simulation
 
-This repository contains the authors' implementation of the guided unidirectional path tracer of the research paper ["Practical Path Guiding for Efficient Light-Transport Simulation" [Müller et al. 2017]](https://tom94.net). It also includes a visualization tool for the SD-Trees learned by the guided path tracer. The guided path tracer has been implemented in the [Mitsuba Physically Based Renderer](http://mitsuba-renderer.org) and the visualization tool with the [nanogui](https://github.com/wjakob/nanogui) library.
+This repository contains the authors' implementation of the guided unidirectional path tracer of the research paper ["Practical Path Guiding for Efficient Light-Transport Simulation" [Müller et al. 2017]](https://tom94.net) as well as several improvements to the algorithm that were presented in [chapter 10 of the "Path Guiding in Production" SIGGRAPH'19 course](https://tom94.net). It also includes a visualization tool for the SD-Trees learned by the guided path tracer. The guided path tracer has been implemented in the [Mitsuba Physically Based Renderer](http://mitsuba-renderer.org) and the visualization tool with the [nanogui](https://github.com/wjakob/nanogui) library.
 
 ### No Support for Participating Media
 
@@ -21,9 +21,11 @@ This repository contains the following improvements over what was presented in t
 - Filtered SD-tree splatting for increased robustness.
 - Automatic learning of the BSDF / SD-tree sampling ratio via gradient descent based on the theory of [Neural Importance Sampling [Müller et al. 2018]](https://tom94.net).
 
-To see the effect of each of these improvements, compare the above example renders with [only the inverse-variance-based sample combination](resources/glossy-kitchen-inverse-variance-only.png), [only filtered SD-tree splatting](resources/glossy-kitchen-splatting-only.png) and [only sampling ratio learning](resources/glossy-kitchen-mis-only.png).
+These improvements are described in detail in [chapter 10 of the "Path Guiding in Production" SIGGRAPH'19 course](https://tom94.net).
 
-Since these improvements significantly improve the algorithm, they are *disabled* by default for reproducibility of the paper's results.
+To see the effect of each of the improvements in isolation, compare the above example renders with [only the inverse-variance-based sample combination](resources/glossy-kitchen-inverse-variance-only.png), [only filtered SD-tree splatting](resources/glossy-kitchen-splatting-only.png) and [only sampling ratio learning](resources/glossy-kitchen-mis-only.png).
+
+Since the improvements significantly improve the algorithm, they are *disabled* by default for reproducibility of the paper's results.
 To get the optimal results *with* the improvements, simply add the following parameters to the integrator in the scene XML file
 ```xml
 <string name="sampleCombination" value="inversevar"/>
