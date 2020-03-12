@@ -2002,7 +2002,7 @@ public:
                                         dTree,
                                         dTreeVoxelSize,
                                         Ray(its.p, dRec.d, 0),
-                                        throughput * bsdfVal * dRec.pdf,
+                                        throughput * bsdfVal / dRec.pdf,
                                         bsdfVal,
                                         L,
                                         dRec.pdf,
