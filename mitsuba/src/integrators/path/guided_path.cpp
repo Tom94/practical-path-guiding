@@ -1414,7 +1414,7 @@ public:
             }
             buildSDTree();
 
-            if (m_dumpSDTree) {
+            if (m_dumpSDTree && !m_isFinalIter) {
                 dumpSDTree(scene, sensor);
             }
 
@@ -1501,7 +1501,7 @@ public:
             }
             buildSDTree();
 
-            if (m_dumpSDTree) {
+            if (m_dumpSDTree && !m_isFinalIter) {
                 dumpSDTree(scene, sensor);
             }
 
