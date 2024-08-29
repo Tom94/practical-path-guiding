@@ -494,7 +494,7 @@ public:
 
                     m_nodes[sNode.nodeIndex].setChild(i, static_cast<uint16_t>(m_nodes.size()));
                     m_nodes.emplace_back();
-                    m_nodes.back().setSum(otherNode.sum(i) / 4);
+                    m_nodes.back().setSum(sNode.otherDTree->m_nodes[sNode.otherNodeIndex].sum(i) / 4);
 
                     if (m_nodes.size() > std::numeric_limits<uint16_t>::max()) {
                         SLog(EWarn, "DTreeWrapper hit maximum children count.");
